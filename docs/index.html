@@ -1,0 +1,1609 @@
+<!doctype html>
+<html lang="ca">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TradingBot v2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="manifest" href="manifest.json">
+<script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0a0e14;
+    --panel: #12171f;
+    --panel-2: #171d28;
+    --border: rgba(255,255,255,.08);
+    --border-strong: rgba(255,255,255,.16);
+    --text: #e8edf4;
+    --text-dim: #aab4c2;
+    --muted: #7c8798;
+    --buy: #3ddc84;
+    --sell: #ff5c72;
+    --hold: #7c8798;
+    --auto: #f0b429;
+    --breaker: #ff8a3d;
+    --override: #c893ff;
+    --accent: #5b9dff;
+    --sim: #3ddc84;
+    --live: #ff5c72;
+
+    --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+    --space-6: 24px; --space-8: 32px; --space-12: 48px;
+
+    --radius-sm: 6px; --radius-md: 10px; --radius-lg: 14px;
+
+    --elevation-1: 0 1px 2px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.025);
+    --elevation-2: 0 8px 24px -6px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.035);
+    --elevation-3: 0 20px 48px -10px rgba(0,0,0,.65), inset 0 1px 0 rgba(255,255,255,.045);
+
+    --ease: cubic-bezier(.2,.8,.2,1);
+    --dur-fast: 170ms;
+    --dur-med: 520ms;
+
+    --font-ui: 'Inter', system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+
+  /* Respect prefers-reduced-motion globally -- transitions and CSS animations
+     collapse to effectively instant; JS-driven number tweening checks the same
+     media query itself (see REDUCE_MOTION below) and skips straight to the target
+     value instead of running its own rAF loop. */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: .001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: .001ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); }
+  body {
+    font: 14px/1.55 var(--font-ui);
+    margin: 0; padding: var(--space-6) var(--space-6) var(--space-12); color: var(--text);
+    -webkit-font-smoothing: antialiased;
+  }
+  .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+  /* ---- themed scrollbar ---- */
+  * { scrollbar-width: thin; scrollbar-color: #2c3444 var(--panel); }
+  *::-webkit-scrollbar { width: 10px; height: 10px; }
+  *::-webkit-scrollbar-track { background: var(--panel); }
+  *::-webkit-scrollbar-thumb { background: #2c3444; border-radius: 6px; border: 2px solid var(--panel); }
+  *::-webkit-scrollbar-thumb:hover { background: #3a445a; }
+
+  .icon { width: 1em; height: 1em; flex: none; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; vertical-align: -0.15em; }
+  .icon-fill { fill: currentColor; stroke: none; }
+
+  /* ---------------------------------------------------------------- header */
+  header {
+    display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3) var(--space-6);
+    margin-bottom: var(--space-6);
+  }
+  h1 { font-size: 15px; margin: 0; font-weight: 700; letter-spacing: -.01em; }
+  h1 span { color: var(--muted); font-weight: 400; }
+
+  .mode-badge {
+    display: inline-flex; align-items: center; font-size: 11px; font-weight: 700;
+    letter-spacing: .5px; padding: 4px 10px; border-radius: 20px; text-transform: uppercase;
+    transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+  }
+  .mode-badge .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; display: inline-block; margin-right: 6px; }
+  .mode-badge.live { background: rgba(255,92,114,.14); color: var(--live); box-shadow: inset 0 0 0 1px rgba(255,92,114,.3); }
+  .mode-badge.sim { background: rgba(61,220,132,.14); color: var(--sim); box-shadow: inset 0 0 0 1px rgba(61,220,132,.3); }
+
+  .clocks { display: flex; gap: var(--space-2); margin-left: auto; flex-wrap: wrap; }
+  .clock {
+    display: flex; align-items: center; gap: 7px; background: var(--panel);
+    border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px 11px;
+    font-size: 12px; box-shadow: var(--elevation-1);
+  }
+  .clock .icon { color: var(--muted); }
+  .clock .dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+  .clock .dot.open { background: var(--buy); box-shadow: 0 0 6px var(--buy); }
+  .clock .dot.closed { background: var(--muted); }
+  .clock b { font-weight: 600; }
+  .clock span.label { color: var(--muted); }
+
+  /* -------------------------------------------------------------- countdown */
+  @property --pct {
+    syntax: '<number>'; inherits: true; initial-value: 0;
+  }
+  .countdown {
+    display: flex; align-items: center; gap: var(--space-3); background: var(--panel);
+    border: 1px solid var(--border); border-radius: var(--radius-md); padding: 7px 15px 7px 7px;
+    box-shadow: var(--elevation-1);
+  }
+  .countdown .ring {
+    width: 32px; height: 32px; border-radius: 50%; flex: none;
+    background: conic-gradient(var(--accent) calc(var(--pct, 0) * 1%), #232c3a 0);
+    display: flex; align-items: center; justify-content: center;
+    transition: --pct 900ms linear;
+  }
+  .countdown .ring::after { content: ""; width: 22px; height: 22px; border-radius: 50%; background: var(--panel); }
+  .countdown .text { display: flex; flex-direction: column; line-height: 1.25; }
+  .countdown .text b { font-size: 14px; font-weight: 600; }
+  .countdown .text span { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+
+  /* -------------------------------------------------------------------tabs */
+  nav.tabs { position: relative; display: flex; gap: var(--space-1); border-bottom: 1px solid var(--border); margin-bottom: var(--space-6); }
+  nav.tabs button {
+    background: none; border: none; color: var(--muted); font: inherit; font-weight: 600;
+    padding: var(--space-2) var(--space-4); cursor: pointer; font-size: 13px;
+    transition: color var(--dur-fast) var(--ease);
+  }
+  nav.tabs button:hover { color: var(--text-dim); }
+  nav.tabs button.active { color: var(--text); }
+  .tab-indicator {
+    position: absolute; bottom: -1px; height: 2px; left: 0; width: 0; background: var(--accent);
+    border-radius: 2px 2px 0 0;
+    transition: left var(--dur-fast) var(--ease), width var(--dur-fast) var(--ease);
+  }
+  .tab { display: none; }
+  .tab.active { display: block; animation: tabIn var(--dur-fast) var(--ease); }
+  @keyframes tabIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* ------------------------------------------------------------- hero stat */
+  .hero { margin-bottom: var(--space-8); }
+  .hero-label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .6px; margin-bottom: var(--space-1); }
+  .hero-value { font-size: clamp(38px, 5.2vw, 54px); font-weight: 700; letter-spacing: -.02em; line-height: 1.1; }
+  .secondary-stats { display: flex; gap: var(--space-8); margin-top: var(--space-4); flex-wrap: wrap; }
+  .stat b { display: block; font-size: 19px; font-weight: 600; }
+  .stat span { color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: .4px; }
+  .pos { color: var(--buy); } .neg { color: var(--sell); }
+
+  /* ------------------------------------------------------------- panels -- */
+  .panel {
+    background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-lg);
+    padding: var(--space-4) var(--space-4) var(--space-6); margin-bottom: var(--space-6);
+    box-shadow: var(--elevation-2); position: relative;
+  }
+  .panel h2 {
+    font-size: 11.5px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted);
+    margin: 0 0 var(--space-4); display: flex; align-items: center; gap: 6px;
+  }
+  #equityCurveWrap { position: relative; }
+  #equityCurve { width: 100%; height: 160px; display: block; overflow: visible; cursor: crosshair; }
+  .eq-line { transition: stroke var(--dur-fast) var(--ease); }
+  .eq-tooltip {
+    position: absolute; top: 0; pointer-events: none; transform: translate(-50%, -100%);
+    background: #1a212d; border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+    padding: 6px 10px; font-size: 11.5px; white-space: nowrap; box-shadow: var(--elevation-2);
+    display: none; z-index: 5;
+  }
+  .eq-tooltip b { display: block; font-size: 13px; }
+  .eq-tooltip span { color: var(--muted); font-size: 10.5px; }
+
+  /* ------------------------------------------------------------- holdings */
+  .holding {
+    display: grid; grid-template-columns: 1.3fr 1fr 2fr; gap: var(--space-4); align-items: center;
+    background: var(--panel-2); border-radius: var(--radius-md); padding: var(--space-3) var(--space-4);
+    margin-bottom: var(--space-2); border-left: 3px solid var(--hold);
+    box-shadow: var(--elevation-1);
+    transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+  }
+  .holding:hover { transform: translateY(-1px); box-shadow: var(--elevation-2); }
+  .holding.pos { border-left-color: var(--buy); }
+  .holding.neg { border-left-color: var(--sell); }
+  .holding .head { display: flex; align-items: baseline; gap: var(--space-2); }
+  .holding .head .sym { font-weight: 700; font-size: 15px; }
+  .holding .head .ac { font-size: 9.5px; color: var(--muted); text-transform: uppercase; border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; }
+  .holding .value { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .holding .value b { color: var(--text); font-weight: 600; }
+  .holding .pnl { font-size: 11.5px; display: flex; align-items: center; gap: 10px; }
+  .holding .pnl-figures b { font-size: 17px; display: block; }
+  .holding .pnl-label { display: block; font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; margin-bottom: 2px; }
+  .spark { width: 56px; height: 22px; flex: none; }
+  .returns { display: flex; gap: var(--space-3); flex-wrap: wrap; align-content: center; }
+  .returns .r { text-align: center; min-width: 42px; }
+  .returns .r span { display: block; font-size: 9px; color: var(--muted); text-transform: uppercase; }
+  .returns .r b { font-size: 12px; }
+  .returns .r b.nr { color: var(--muted); font-weight: 400; }
+  .empty-note { color: var(--muted); font-style: italic; padding: var(--space-3) 2px; }
+
+  /* -------------------------------------------------------- signals table */
+  .wrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; min-width: 820px; }
+  th, td { text-align: left; padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { font-size: 10px; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); position: sticky; top: 0; background: var(--panel); }
+  tbody tr { transition: background var(--dur-fast) var(--ease); }
+  tbody tr:hover { background: rgba(255,255,255,.02); }
+  .action-cell { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+  .action-cell.buy { color: var(--buy); } .action-cell.sell { color: var(--sell); } .action-cell.hold { color: var(--hold); font-weight: 500; }
+  .conf-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+  .conf-dot.high { background: var(--accent); } .conf-dot.mid { background: var(--auto); } .conf-dot.low { background: var(--muted); }
+  td.reason { max-width: 480px; font-size: 12.5px; white-space: pre-wrap; }
+  td.reason .override-note {
+    display: inline-flex; align-items: flex-start; gap: 6px; font-size: 11.5px; font-style: normal;
+    padding: 3px 8px; border-radius: var(--radius-sm); margin-bottom: 6px; background: rgba(255,255,255,.04);
+  }
+  td.reason .override-note .icon { margin-top: 2px; }
+  td.reason .override-note.auto { color: var(--auto); }
+  td.reason .override-note.breaker { color: var(--breaker); }
+  td.reason .override-note.override { color: var(--override); }
+  td.reason .headlines { margin-top: 8px; font-size: 11.5px; color: var(--muted); }
+  td.reason .headlines .sub-label, td.reason .positioning .sub-label {
+    display: flex; align-items: center; gap: 5px; font-size: 10px; text-transform: uppercase;
+    letter-spacing: .4px; margin-bottom: 3px;
+  }
+  td.reason .headlines ul { margin: 0; padding-left: 18px; }
+  td.reason .headlines li { margin-bottom: 2px; }
+  td.reason .positioning { margin-top: 8px; font-size: 11.5px; color: var(--accent); }
+  .mode-chip { font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: 10px; }
+  .mode-chip.REAL { background: rgba(255,92,114,.14); color: var(--live); }
+  .mode-chip.SIMULACIO { background: rgba(61,220,132,.14); color: var(--sim); }
+
+  /* Why a cycle fired -- deliberately its own class family, not a reuse of
+     .mode-chip.REAL/SIMULACIO (which mean "live vs. simulated execution", a
+     different axis entirely). One color per trigger_reason value so wake_buy,
+     wake_sell and manual are visually distinct from each other, not just from
+     "scheduled". */
+  .trigger-chip { font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: 10px; text-transform: lowercase; letter-spacing: .2px; }
+  .trigger-chip.scheduled { background: rgba(124,135,152,.14); color: var(--muted); }
+  .trigger-chip.wake_buy { background: rgba(61,220,132,.14); color: var(--buy); }
+  .trigger-chip.wake_sell { background: rgba(255,92,114,.14); color: var(--sell); }
+  .trigger-chip.manual { background: rgba(200,147,255,.14); color: var(--override); }
+
+  /* -------------------------------------------------------------- glossary */
+  .gloss-search-wrap { margin-bottom: var(--space-6); }
+  .gloss-search {
+    width: 100%; background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+    font: inherit; font-size: 13px; padding: 10px 14px; border-radius: var(--radius-md);
+    outline: none; transition: border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+  }
+  .gloss-search::placeholder { color: var(--muted); }
+  .gloss-search:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(91,157,255,.15); }
+
+  .gloss-category { margin-bottom: var(--space-6); }
+  .gloss-category:last-child { margin-bottom: 0; }
+  .gloss-cat-header {
+    display: flex; align-items: center; gap: 8px; font-size: 11.5px; text-transform: uppercase;
+    letter-spacing: .5px; color: var(--muted); margin: 0 0 var(--space-3); font-weight: 700;
+  }
+  .gloss-cat-header .icon { color: var(--accent); }
+  .gloss-terms { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: var(--space-3); }
+  .gloss-card {
+    background: var(--panel-2); border-radius: var(--radius-md); padding: var(--space-3) var(--space-4);
+    box-shadow: var(--elevation-1);
+    transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+  }
+  .gloss-card:hover { transform: translateY(-1px); box-shadow: var(--elevation-2); }
+  .gloss-term-heading { font-weight: 600; color: var(--accent); font-size: 13px; letter-spacing: .1px; }
+  .gloss-def { margin: 6px 0 0; color: var(--text-dim); font-size: 12.5px; line-height: 1.5; }
+  .gloss-empty { color: var(--muted); font-style: italic; padding: var(--space-3) 2px; }
+
+  /* --------------------------------------------------- inline term popover */
+  .term { border-bottom: 1px dotted var(--muted); cursor: help; }
+  #termPopover {
+    position: fixed; max-width: 280px; background: #1a212d; border: 1px solid var(--border-strong);
+    border-radius: var(--radius-md); padding: var(--space-3); font-size: 12.5px;
+    box-shadow: var(--elevation-3); z-index: 50; display: none; transform-origin: top left;
+  }
+  #termPopover.visible { display: block; animation: popIn var(--dur-fast) var(--ease); }
+  @keyframes popIn { from { opacity: 0; transform: scale(.96) translateY(-2px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+  #termPopover b { display: block; color: var(--accent); margin-bottom: 4px; text-transform: capitalize; }
+
+  footer { margin-top: var(--space-8); color: var(--muted); font-size: 11px; }
+  .push-btn {
+    background: transparent; border: 1px solid var(--border); color: var(--muted);
+    padding: 7px 10px; border-radius: var(--radius-md); cursor: pointer;
+    transition: all var(--dur-fast) var(--ease); display: flex; align-items: center;
+  }
+  .push-btn:hover { background: rgba(255,255,255,0.05); color: var(--text); }
+  .push-btn.active { color: var(--accent); border-color: var(--accent); }
+
+  /* ------------------------------------------------------------ P&L calendar */
+  .cal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-4); }
+  .cal-nav { display: flex; align-items: center; gap: var(--space-3); }
+  .cal-nav-btn {
+    background: var(--panel-2); border: 1px solid var(--border); color: var(--text-dim);
+    width: 30px; height: 30px; border-radius: var(--radius-sm); cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all var(--dur-fast) var(--ease);
+  }
+  .cal-nav-btn:hover { background: rgba(255,255,255,.06); color: var(--text); }
+  .cal-label { font-size: 14px; font-weight: 700; min-width: 150px; text-align: center; text-transform: capitalize; }
+  .cal-legend { display: flex; gap: var(--space-4); font-size: 11px; color: var(--muted); }
+  .cal-legend .sw { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
+  .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+  .cal-dow { text-align: center; font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); padding-bottom: 4px; }
+  .cal-cell {
+    position: relative; aspect-ratio: 1.15 / 1; border-radius: var(--radius-sm); padding: 6px 7px;
+    background: var(--panel-2); border: 1px solid var(--border);
+    display: flex; flex-direction: column; justify-content: flex-start;
+    transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+  }
+  .cal-cell.empty { background: none; border: none; }
+  .cal-cell.empty-day { color: var(--muted); }
+  .cal-cell.pos { background: rgba(61,220,132,.10); border-color: rgba(61,220,132,.28); cursor: pointer; }
+  .cal-cell.neg { background: rgba(255,92,114,.10); border-color: rgba(255,92,114,.28); cursor: pointer; }
+  .cal-cell.flat { background: rgba(124,135,152,.10); border-color: var(--border); cursor: pointer; }
+  .cal-cell.pos:hover, .cal-cell.neg:hover, .cal-cell.flat:hover { transform: translateY(-1px); box-shadow: var(--elevation-2); }
+  .cal-cell.today { box-shadow: inset 0 0 0 1.5px var(--accent); }
+  .cal-daynum { font-size: 11px; color: var(--muted); font-weight: 600; }
+  .cal-amt { font-size: 11px; font-weight: 700; margin-top: auto; line-height: 1.3; }
+  .cal-pct { font-size: 9.5px; line-height: 1.3; }
+  .cal-cell.pos .cal-amt, .cal-cell.pos .cal-pct { color: var(--buy); }
+  .cal-cell.neg .cal-amt, .cal-cell.neg .cal-pct { color: var(--sell); }
+  .cal-cell.flat .cal-amt, .cal-cell.flat .cal-pct { color: var(--muted); }
+
+  /* ------------------------------------------------------------- day modal */
+  #dayModalOverlay {
+    position: fixed; inset: 0; background: rgba(6,9,14,.6); backdrop-filter: blur(2px);
+    display: none; align-items: center; justify-content: center; z-index: 60; padding: var(--space-4);
+  }
+  #dayModalOverlay.visible { display: flex; }
+  #dayModal {
+    background: var(--panel); border: 1px solid var(--border-strong); border-radius: var(--radius-lg);
+    box-shadow: var(--elevation-3); width: min(760px, 100%); max-height: 82vh; overflow: auto;
+    padding: var(--space-4) var(--space-4) var(--space-6);
+  }
+  .day-modal-head { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: var(--space-4); gap: var(--space-4); }
+  .day-modal-head h3 { margin: 0 0 4px; font-size: 15px; font-weight: 700; }
+  #dayModalSummary { font-size: 13px; color: var(--muted); }
+  #dayModalClose {
+    background: transparent; border: 1px solid var(--border); color: var(--muted);
+    width: 28px; height: 28px; border-radius: var(--radius-sm); cursor: pointer; flex: none;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #dayModalClose:hover { color: var(--text); background: rgba(255,255,255,.05); }
+
+  #costModalOverlay {
+    position: fixed; inset: 0; background: rgba(6,9,14,.6); backdrop-filter: blur(2px);
+    display: none; align-items: center; justify-content: center; z-index: 60; padding: var(--space-4);
+  }
+  #costModalOverlay.visible { display: flex; }
+  #costModal {
+    background: var(--panel); border: 1px solid var(--border-strong); border-radius: var(--radius-lg);
+    box-shadow: var(--elevation-3); width: min(440px, 100%); padding: var(--space-4) var(--space-4) var(--space-6);
+  }
+  #costModal .cost-figure { font-size: 22px; font-weight: 700; color: var(--text); margin: 6px 0; }
+  #costModal .cost-breakdown { font-size: 11.5px; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<!-- Icon sprite: one small, consistent stroke-based icon language for the whole
+     page instead of emoji (which render inconsistently across platforms/fonts). -->
+<svg style="position:absolute; width:0; height:0" aria-hidden="true">
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.3 2"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M4 17l6-6 4 4 6-9"/><path d="M14 6h6v6"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M4 7l6 6 4-4 6 9"/><path d="M14 18h6v-6"/></symbol>
+  <symbol id="i-minus" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/></symbol>
+  <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8z"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 5-3.4 8.4-7 9-3.6-.6-7-4-7-9V6l7-3z"/></symbol>
+  <symbol id="i-news" viewBox="0 0 24 24"><rect x="3" y="5" width="14" height="14" rx="1.5"/><path d="M17 9h4v9a2 2 0 0 1-2 2H7"/><line x1="6" y1="9" x2="12" y2="9"/><line x1="6" y1="12.5" x2="14" y2="12.5"/><line x1="6" y1="16" x2="11" y2="16"/></symbol>
+  <symbol id="i-wallet" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18"/><circle cx="16.5" cy="14.5" r="1"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></symbol>
+  <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18"/><path d="M8 3v4"/><path d="M16 3v4"/></symbol>
+  <symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+  <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+</svg>
+
+<header>
+  <h1>TradingBot v2 <span>&mdash; Fase 3</span></h1>
+  <span id="modeBadge" class="mode-badge sim"><span class="dot"></span>&mdash;</span>
+  <div id="countdown" class="countdown">
+    <div class="ring" style="--pct:0"></div>
+    <div class="text"><b id="countdownTime" class="mono">&mdash;</b><span>Proxima analisi</span></div>
+  </div>
+  <button id="pushToggle" class="push-btn" aria-label="Notificacions"><svg class="icon"><use href="#i-bell"/></svg></button>
+  <div id="clocks" class="clocks"></div>
+</header>
+
+<nav class="tabs" id="tabsNav">
+  <button data-tab="resum" class="active">Resum</button>
+  <button data-tab="analisi">Analisi</button>
+  <button data-tab="calendari">Calendari P&amp;L</button>
+  <button data-tab="cercador">Cercador</button>
+  <button data-tab="significats">Significats</button>
+  <span class="tab-indicator" id="tabIndicator"></span>
+</nav>
+
+<!-- ================================================================ Resum -->
+<section id="tab-resum" class="tab active">
+  <div class="hero">
+    <div class="hero-label"><span class="term" data-term="patrimoni total">Patrimoni total</span></div>
+    <div class="hero-value mono" id="equity">&mdash;</div>
+    <div class="secondary-stats">
+      <div class="stat"><b class="mono" id="count">&mdash;</b><span>Senyals</span></div>
+      <div class="stat"><b class="mono" id="winRate">&mdash;</b><span>Win Rate (Trades)</span></div>
+      <div class="stat"><b class="mono" id="pnl">&mdash;</b><span><span class="term" data-term="p&amp;l realitzat">P&amp;L total</span></span></div>
+      <div class="stat"><b class="mono" id="todayPnl">&mdash;</b><span>P&amp;L avui</span></div>
+    </div>
+  </div>
+
+  <div class="panel" id="equityCurveWrap">
+    <h2><svg class="icon"><use href="#i-up"/></svg>Corba de patrimoni</h2>
+    <svg id="equityCurve" viewBox="0 0 680 160" preserveAspectRatio="none"></svg>
+    <div class="eq-tooltip" id="eqTooltip"></div>
+  </div>
+
+  <div class="panel">
+    <h2><svg class="icon"><use href="#i-wallet"/></svg>Posicions obertes</h2>
+    <div id="holdings"></div>
+  </div>
+</section>
+
+<!-- =============================================================== Analisi -->
+<section id="tab-analisi" class="tab">
+  <div class="panel">
+    <div class="wrap"><table>
+      <thead><tr>
+        <th>Data</th><th>Simbol</th><th>Mode</th><th>Accio</th><th>Model</th><th><span class="term" data-term="confidence">Conf.</span></th>
+        <th>Mida %</th><th>Preu</th><th>Exec.</th><th>P&amp;L</th><th>Analisi completa</th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- ============================================================= Calendari -->
+<section id="tab-calendari" class="tab">
+  <div class="panel">
+    <div class="cal-header">
+      <div class="cal-nav">
+        <button id="calPrev" class="cal-nav-btn" aria-label="Mes anterior"><svg class="icon"><use href="#i-chevron-left"/></svg></button>
+        <div class="cal-label" id="calendarLabel">&mdash;</div>
+        <button id="calNext" class="cal-nav-btn" aria-label="Mes seguent"><svg class="icon"><use href="#i-chevron-right"/></svg></button>
+      </div>
+      <div class="cal-legend">
+        <span><span class="sw" style="background:var(--buy)"></span>Dia positiu</span>
+        <span><span class="sw" style="background:var(--sell)"></span>Dia negatiu</span>
+        <span><span class="sw" style="background:var(--muted)"></span>Sense operacions tancades</span>
+      </div>
+    </div>
+    <div class="cal-grid" id="calendarGrid"></div>
+  </div>
+</section>
+
+<!-- ========================================================== Cercador & Chart -->
+<section id="tab-cercador" class="tab">
+  <div class="panel" style="display: flex; flex-direction: column; gap: var(--space-4);">
+    <div style="font-size: 11.5px; color: var(--muted);">
+      Cerca sobre l'univers Nasdaq-50 actual del bot (la llista de <code class="mono">symbols</code>
+      a config.yaml) &mdash; suggerit al escriure. Qualsevol simbol nord-america tambe mostra grafic,
+      pero nomes els de l'univers son analitzats pel cicle programat.
+    </div>
+    <div style="display: flex; gap: var(--space-3);">
+      <input type="text" id="searchInput" class="gloss-search mono" placeholder="Símbol (Ex: AAPL)" style="flex: 1;" autocomplete="off" list="nasdaq50List">
+      <datalist id="nasdaq50List"></datalist>
+      <button id="searchBtn" class="push-btn" style="color: var(--accent); border-color: var(--accent);">Cercar & Gràfic</button>
+      <button id="runAnalysisBtn" class="push-btn" style="color: var(--buy); border-color: var(--buy); display: none;">Executar Anàlisi Ara</button>
+    </div>
+    <div id="chartContainer" style="width: 100%; height: 400px; display: none; position: relative;"></div>
+  </div>
+</section>
+
+<!-- =========================================================== Significats -->
+<section id="tab-significats" class="tab">
+  <div class="panel">
+    <div class="gloss-search-wrap">
+      <input type="search" id="glossarySearch" class="gloss-search mono"
+             placeholder="Cerca un terme (stop-loss, RSI, confidence...)" autocomplete="off">
+    </div>
+    <div id="glossaryList"></div>
+  </div>
+</section>
+
+<div id="termPopover"></div>
+
+<div id="dayModalOverlay">
+  <div id="dayModal" role="dialog" aria-modal="true" aria-labelledby="dayModalTitle">
+    <div class="day-modal-head">
+      <div>
+        <h3 id="dayModalTitle">&mdash;</h3>
+        <div id="dayModalSummary"></div>
+      </div>
+      <button id="dayModalClose" aria-label="Tancar"><svg class="icon"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="wrap"><table>
+      <thead><tr>
+        <th>Hora</th><th>Simbol</th><th>Accio</th><th>Quantitat</th><th>Preu entrada</th><th>Preu sortida</th><th>P&amp;L $</th><th>P&amp;L %</th><th>Motiu</th>
+      </tr></thead>
+      <tbody id="dayModalRows"></tbody>
+    </table></div>
+  </div>
+</div>
+
+<div id="costModalOverlay">
+  <div id="costModal" role="dialog" aria-modal="true" aria-labelledby="costModalTitle">
+    <div class="day-modal-head">
+      <div>
+        <h3 id="costModalTitle">Confirmar analisi manual</h3>
+        <div id="costModalBody" style="color: var(--text-dim); font-size: 13px; line-height: 1.6;"></div>
+      </div>
+      <button id="costModalClose" aria-label="Tancar"><svg class="icon"><use href="#i-x"/></svg></button>
+    </div>
+    <div style="display: flex; gap: var(--space-3); justify-content: flex-end; margin-top: var(--space-4);">
+      <button id="costModalCancel" class="push-btn">Cancel·lar</button>
+      <button id="costModalConfirm" class="push-btn" style="color: var(--buy); border-color: var(--buy);">Confirmar i executar</button>
+    </div>
+  </div>
+</div>
+
+<footer>Dades generades pel pipeline TradingBot. Actualitzacio automatica cada <span id="refreshSecs">45</span>s.</footer>
+
+<script>
+// Respect prefers-reduced-motion for the JS-driven parts too (CSS transitions/
+// animations are already neutralised globally above) -- number tweening below
+// jumps straight to the target value instead of running its own rAF loop.
+const REDUCE_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function escapeHtml(str) {
+  return String(str == null ? '' : str).replace(/[&<>"']/g, c => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
+
+// ============================================================== glossary ===
+// Single source of truth: both the Significats tab and every inline <span
+// class="term"> elsewhere in this page read from GLOSSARY, so a definition is
+// never duplicated or allowed to drift between the two places it appears.
+const GLOSSARY = {
+  'stop-loss': "Preu al qual una posicio es tanca automaticament si el mercat va en contra nostra, per limitar la perdua.",
+  'take-profit': "Preu objectiu al qual una posicio guanyadora es tanca automaticament per assegurar el benefici.",
+  'rsi': "Relative Strength Index: indicador de 0 a 100 que mesura si un actiu esta sobrecomprat (per sobre de 70) o sobrevenut (per sota de 30).",
+  'sma': "Simple Moving Average: mitjana mobil del preu de tancament durant un nombre fix de sessions, suavitza el soroll de curt termini.",
+  'spot': "Compra o venda de l'actiu real, sense apalancament ni derivats, amb lliurament immediat.",
+  'confidence': "Grau de seguretat que el propi model assigna a la seva decisio, de 0 (gens segur) a 1 (totalment segur).",
+  'circuit breaker': "Mecanisme de seguretat que atura les operacions per la resta del dia si la perdua realitzada supera un limit fixat.",
+  'hold': "Accio de no fer res: mantenir la posicio actual sense comprar ni vendre.",
+  'buy': "Accio de comprar l'actiu.",
+  'sell': "Accio de vendre l'actiu.",
+  'override': "Quan el gestor de risc modifica o bloqueja la decisio original del model per aplicar una regla de seguretat.",
+  'simulacio': "Mode de prova: les operacions es registren pero no es fa cap ordre real ni es mou diner de veritat.",
+  'real': "Mode en actiu: les ordres s'executen de veritat contra el broker o l'exchange, amb diner real.",
+  'nr': "\"No hi ha registre\": no hi ha prou historial de preu per calcular aquest retorn (per exemple, un actiu que cotitza fa poc).",
+  'p&l no realitzat': "Guany o perdua d'una posicio oberta, calculat al preu actual pero encara no cobrat.",
+  'p&l realitzat': "Guany o perdua ja efectiu, despres de tancar una posicio.",
+  'patrimoni total': "Valor total del compte: efectiu mes el valor de mercat de totes les posicions obertes.",
+};
+
+function term(word, label) {
+  label = label || word;
+  // data-term round-trips through el.dataset.term on read, which the browser
+  // HTML-decodes automatically -- so the attribute value must be properly
+  // entity-escaped here (glossary keys like "p&l realitzat" contain a literal
+  // "&") for the write side to match.
+  const safeWord = String(word).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+  return `<span class="term" data-term="${safeWord}">${label}</span>`;
+}
+
+function capitalize(s) {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+// Categorised purely for the Significats tab's layout -- GLOSSARY itself stays
+// a flat, single source of truth for definitions (read by both this tab and
+// every inline term() elsewhere), so a category is just "which section this
+// key's card renders in", never a second place its text could drift.
+const GLOSSARY_CATEGORIES = [
+  { name: 'Indicadors tecnics', icon: 'i-up', terms: ['rsi', 'sma'] },
+  { name: 'Gestio de risc', icon: 'i-shield', terms: ['stop-loss', 'take-profit', 'circuit breaker', 'confidence', 'override'] },
+  { name: 'Accions i mercat', icon: 'i-wallet', terms: ['buy', 'sell', 'hold', 'spot'] },
+  { name: 'Resultats i mode', icon: 'i-bolt', terms: ['simulacio', 'real', 'nr', 'p&l no realitzat', 'p&l realitzat', 'patrimoni total'] },
+];
+
+function renderGlossaryTab() {
+  // Defensive: a GLOSSARY key added later without being slotted into a category
+  // above still has to show up somewhere, not silently vanish from the tab.
+  const categorised = new Set(GLOSSARY_CATEGORIES.flatMap(c => c.terms));
+  const leftover = Object.keys(GLOSSARY).filter(k => !categorised.has(k));
+  const categories = leftover.length
+    ? [...GLOSSARY_CATEGORIES, { name: 'Altres', icon: 'i-clock', terms: leftover }]
+    : GLOSSARY_CATEGORIES;
+
+  const list = document.getElementById('glossaryList');
+  list.innerHTML = categories.map(cat => `
+    <div class="gloss-category" data-gloss-category>
+      <h3 class="gloss-cat-header"><svg class="icon"><use href="#${cat.icon}"/></svg>${cat.name}</h3>
+      <div class="gloss-terms">
+        ${cat.terms.map(k => `
+          <div class="gloss-card" data-gloss-card data-search="${escapeHtml(k + ' ' + GLOSSARY[k]).toLowerCase()}">
+            <div class="gloss-term-heading mono" id="term-${escapeHtml(k)}">${escapeHtml(k)}</div>
+            <p class="gloss-def">${GLOSSARY[k]}</p>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `).join('');
+}
+
+function wireGlossarySearch() {
+  const input = document.getElementById('glossarySearch');
+  input.addEventListener('input', () => {
+    const q = input.value.trim().toLowerCase();
+    document.querySelectorAll('[data-gloss-card]').forEach(card => {
+      card.hidden = !(!q || card.dataset.search.includes(q));
+    });
+    document.querySelectorAll('[data-gloss-category]').forEach(cat => {
+      const anyVisible = Array.from(cat.querySelectorAll('[data-gloss-card]')).some(c => !c.hidden);
+      cat.hidden = !anyVisible;
+    });
+  });
+}
+
+(function wireTermPopover() {
+  const pop = document.getElementById('termPopover');
+  document.addEventListener('click', (e) => {
+    const el = e.target.closest('.term');
+    if (!el) { pop.classList.remove('visible'); return; }
+    const key = el.dataset.term;
+    const def = GLOSSARY[key];
+    if (!def) return;
+    pop.innerHTML = `<b>${key}</b>${def}`;
+    const rect = el.getBoundingClientRect();
+    const top = Math.min(rect.bottom + 6, window.innerHeight - 100);
+    const left = Math.min(rect.left, window.innerWidth - 300);
+    pop.style.top = top + 'px';
+    pop.style.left = Math.max(8, left) + 'px';
+    pop.classList.add('visible');
+    e.stopPropagation();
+  });
+})();
+
+// ================================================================== tabs ===
+function moveTabIndicator(btn) {
+  const nav = document.getElementById('tabsNav');
+  const indicator = document.getElementById('tabIndicator');
+  const navRect = nav.getBoundingClientRect();
+  const btnRect = btn.getBoundingClientRect();
+  indicator.style.left = (btnRect.left - navRect.left) + 'px';
+  indicator.style.width = btnRect.width + 'px';
+}
+
+document.querySelectorAll('nav.tabs button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('nav.tabs button').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+    moveTabIndicator(btn);
+  });
+});
+window.addEventListener('resize', () => {
+  const active = document.querySelector('nav.tabs button.active');
+  if (active) moveTabIndicator(active);
+});
+
+// ================================================================== CSV  ===
+function parseCSV(text) {
+  const rows = []; let row = [], cell = '', quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (quoted) {
+      if (c === '"' && text[i + 1] === '"') { cell += '"'; i++; }
+      else if (c === '"') quoted = false;
+      else cell += c;
+    } else if (c === '"') quoted = true;
+    else if (c === ',') { row.push(cell); cell = ''; }
+    else if (c === '\n') { row.push(cell); rows.push(row); row = []; cell = ''; }
+    else if (c !== '\r') cell += c;
+  }
+  if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+  return rows;
+}
+
+function fmtMoney(n) {
+  return isFinite(n) ? '$' + n.toLocaleString('ca-ES', { maximumFractionDigits: 2, minimumFractionDigits: 2 }) : '—';
+}
+function fmtMoneySigned(n) {
+  if (!isFinite(n)) return '—';
+  return (n < 0 ? '-' : '+') + '$' + Math.abs(n).toLocaleString('ca-ES', { maximumFractionDigits: 2, minimumFractionDigits: 2 });
+}
+function fmtPct(n, digits) {
+  digits = digits === undefined ? 2 : digits;
+  if (n === null || n === undefined || !isFinite(n)) return `<b class="nr mono">${term('nr', 'NR')}</b>`;
+  const cls = n > 0 ? 'pos' : n < 0 ? 'neg' : '';
+  return `<b class="${cls} mono">${n >= 0 ? '+' : ''}${n.toFixed(digits)}%</b>`;
+}
+
+// ======================================================== number tweening ==
+// Numbers that update (equity, P&L, holdings) count/tween to their new value
+// instead of snapping instantly. State lives here (not in the DOM) because the
+// holdings list and table are fully re-rendered from scratch on every refresh,
+// not diffed -- keying the "previous value" cache by a stable id sidesteps that.
+const _prevValues = Object.create(null);
+const NUMBER_FORMATTERS = {
+  money: fmtMoney,
+  moneySigned: fmtMoneySigned,
+  int: v => Math.round(v).toLocaleString('ca-ES'),
+};
+
+function tweenNumber(el, key, toValue, formatterKey, duration) {
+  if (!el || !isFinite(toValue)) return;
+  duration = duration || 520;
+  const format = NUMBER_FORMATTERS[formatterKey];
+  const from = key in _prevValues ? _prevValues[key] : toValue;
+  _prevValues[key] = toValue;
+
+  if (REDUCE_MOTION || from === toValue) {
+    el.textContent = format(toValue);
+    return;
+  }
+  const start = performance.now();
+  function frame(now) {
+    const t = Math.min(1, (now - start) / duration);
+    const eased = 1 - Math.pow(1 - t, 3); // ease-out cubic
+    el.textContent = format(from + (toValue - from) * eased);
+    if (t < 1) requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+}
+
+// A generic helper for numbers embedded inside innerHTML-rendered blocks (the
+// holdings list): render with data-anim/data-target/data-fmt placeholders, then
+// wire them up in one pass right after insertion.
+function wireAnimatedNumbers(container) {
+  container.querySelectorAll('[data-anim]').forEach(el => {
+    const raw = parseFloat(el.dataset.target);
+    tweenNumber(el, el.dataset.anim, raw, el.dataset.fmt, el.dataset.dur ? +el.dataset.dur : undefined);
+  });
+}
+
+// ============================================================ equity curve =
+// Monotone cubic interpolation (Fritsch-Carlson) -- smooth through the points
+// without the overshoot a plain Catmull-Rom spline would introduce, which
+// matters here: an overshoot on a flat equity curve would draw a fake bump.
+function monotoneTangents(xs, ys) {
+  const n = xs.length;
+  const d = [];
+  for (let i = 0; i < n - 1; i++) d.push((ys[i + 1] - ys[i]) / (xs[i + 1] - xs[i]));
+  const m = new Array(n);
+  m[0] = d[0]; m[n - 1] = d[n - 2];
+  for (let i = 1; i < n - 1; i++) m[i] = (d[i - 1] * d[i] <= 0) ? 0 : (d[i - 1] + d[i]) / 2;
+  for (let i = 0; i < n - 1; i++) {
+    if (d[i] === 0) { m[i] = 0; m[i + 1] = 0; continue; }
+    const a = m[i] / d[i], b = m[i + 1] / d[i];
+    const s = a * a + b * b;
+    if (s > 9) {
+      const tau = 3 / Math.sqrt(s);
+      m[i] = tau * a * d[i];
+      m[i + 1] = tau * b * d[i];
+    }
+  }
+  return m;
+}
+
+function monotonePath(xs, ys) {
+  const m = monotoneTangents(xs, ys);
+  let d = `M ${xs[0].toFixed(2)},${ys[0].toFixed(2)}`;
+  for (let i = 0; i < xs.length - 1; i++) {
+    const dx = (xs[i + 1] - xs[i]) / 3;
+    const c1x = xs[i] + dx, c1y = ys[i] + m[i] * dx;
+    const c2x = xs[i + 1] - dx, c2y = ys[i + 1] - m[i + 1] * dx;
+    d += ` C ${c1x.toFixed(2)},${c1y.toFixed(2)} ${c2x.toFixed(2)},${c2y.toFixed(2)} ${xs[i + 1].toFixed(2)},${ys[i + 1].toFixed(2)}`;
+  }
+  return d;
+}
+
+let curveState = { points: [], xs: [], ys: [], W: 680, H: 160 };
+let equityCurveDrawnOnce = false;
+
+function renderEquityCurve(data) {
+  const svg = document.getElementById('equityCurve');
+  const points = data
+    .map(r => ({ t: r.timestamp, v: parseFloat(r.account_equity_usd) }))
+    .filter(p => isFinite(p.v));
+  if (points.length < 2) { svg.innerHTML = ''; curveState = { points: [], xs: [], ys: [], W: 680, H: 160 }; return; }
+
+  const W = 680, H = 160, PAD_X = 6, PAD_Y = 12;
+  const values = points.map(p => p.v);
+  const min = Math.min(...values), max = Math.max(...values);
+  const span = (max - min) || 1;
+  const xs = points.map((_, i) => PAD_X + (i / (points.length - 1)) * (W - PAD_X * 2));
+  const ys = points.map(p => H - PAD_Y - ((p.v - min) / span) * (H - PAD_Y * 2));
+
+  curveState = { points, xs, ys, W, H };
+
+  const linePath = monotonePath(xs, ys);
+  const areaPath = `${linePath} L ${xs[xs.length - 1].toFixed(2)},${H} L ${xs[0].toFixed(2)},${H} Z`;
+  const rising = values[values.length - 1] >= values[0];
+  const strokeHex = rising ? '#3ddc84' : '#ff5c72';
+
+  svg.innerHTML = `
+    <defs><linearGradient id="eqFill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="${strokeHex}" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="${strokeHex}" stop-opacity="0"/>
+    </linearGradient></defs>
+    <path class="eq-area" d="${areaPath}" fill="url(#eqFill)" stroke="none"/>
+    <path class="eq-line" d="${linePath}" fill="none" stroke="${strokeHex}" stroke-width="2.25" vector-effect="non-scaling-stroke"/>
+    <circle class="eq-dot" r="4" fill="${strokeHex}" style="display:none"/>
+  `;
+
+  // Draw-in animation only on the very first successful render (page load) --
+  // redoing it on every 45s refresh would be motion for motion's sake, not the
+  // "sparingly" this pass asks for.
+  if (!equityCurveDrawnOnce && !REDUCE_MOTION) {
+    const lineEl = svg.querySelector('.eq-line');
+    const len = lineEl.getTotalLength();
+    lineEl.style.strokeDasharray = String(len);
+    lineEl.style.strokeDashoffset = String(len);
+    lineEl.getBoundingClientRect(); // force reflow so the transition below applies
+    lineEl.style.transition = `stroke-dashoffset ${560}ms var(--ease)`;
+    requestAnimationFrame(() => { lineEl.style.strokeDashoffset = '0'; });
+  }
+  equityCurveDrawnOnce = true;
+}
+
+// Hover tooltip: listeners attached once (the <svg> node itself survives every
+// re-render, only its children are replaced), reading live state from
+// `curveState` so they always reflect the latest data.
+(function wireEquityTooltip() {
+  const svg = document.getElementById('equityCurve');
+  const tooltip = document.getElementById('eqTooltip');
+
+  function handleMove(evt) {
+    const { points, xs, ys, W } = curveState;
+    if (!points.length) return;
+    const dot = svg.querySelector('.eq-dot');
+    if (!dot) return;
+
+    const rect = svg.getBoundingClientRect();
+    const clientX = evt.touches ? evt.touches[0].clientX : evt.clientX;
+    const relX = ((clientX - rect.left) / rect.width) * W;
+
+    let idx = 0, best = Infinity;
+    for (let i = 0; i < xs.length; i++) {
+      const dist = Math.abs(xs[i] - relX);
+      if (dist < best) { best = dist; idx = i; }
+    }
+
+    dot.setAttribute('cx', xs[idx]);
+    dot.setAttribute('cy', ys[idx]);
+    dot.style.display = 'block';
+
+    const p = points[idx];
+    const date = new Date(p.t);
+    const dateLabel = isNaN(date)
+      ? (p.t || '').slice(0, 16).replace('T', ' ')
+      : date.toLocaleString('ca-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+
+    tooltip.innerHTML = `<b class="mono">${fmtMoney(p.v)}</b><span>${dateLabel}</span>`;
+    tooltip.style.display = 'block';
+    const left = (xs[idx] / W) * rect.width;
+    tooltip.style.left = Math.min(Math.max(left, 44), rect.width - 44) + 'px';
+  }
+
+  function handleLeave() {
+    const dot = svg.querySelector('.eq-dot');
+    if (dot) dot.style.display = 'none';
+    tooltip.style.display = 'none';
+  }
+
+  svg.addEventListener('mousemove', handleMove);
+  svg.addEventListener('mouseleave', handleLeave);
+  svg.addEventListener('touchmove', handleMove, { passive: true });
+  svg.addEventListener('touchend', handleLeave);
+})();
+
+// =============================================================== holdings ==
+const RETURN_WINDOWS = [
+  ['return_1w_pct', '1s'], ['return_1m_pct', '1m'], ['return_6m_pct', '6m'],
+  ['return_1y_pct', '1a'], ['return_3y_pct', '3a'], ['return_6y_pct', '6a'],
+];
+
+// A tiny inline sparkline from data already on the page (signals.csv logs
+// current_price for every symbol on every 4h cycle, since every configured
+// symbol is evaluated -- and logged -- whether it holds, buys, or sells). No
+// new backend call, no new export.
+function sparkline(values, colorVar) {
+  if (values.length < 2) return '';
+  const w = 56, h = 22, pad = 2;
+  const min = Math.min(...values), max = Math.max(...values);
+  const span = (max - min) || 1;
+  const pts = values.map((v, i) => {
+    const x = pad + (i / (values.length - 1)) * (w - 2 * pad);
+    const y = h - pad - ((v - min) / span) * (h - 2 * pad);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+    <polyline points="${pts}" fill="none" stroke="${colorVar}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+  </svg>`;
+}
+
+function sanitizeId(symbol) {
+  return symbol.replace(/[^A-Za-z0-9]/g, '_');
+}
+
+function renderHoldings(positions, priceSeriesBySymbol) {
+  const el = document.getElementById('holdings');
+  if (!positions || !positions.length) {
+    el.innerHTML = `<div class="empty-note">No hi ha cap posicio oberta actualment.</div>`;
+    return;
+  }
+
+  el.innerHTML = positions.map(p => {
+    const id = sanitizeId(p.symbol);
+    const invested = p.qty * p.avg_entry_price;
+    const hasPnl = p.unrealized_pnl_usd !== null && p.unrealized_pnl_usd !== undefined;
+    const currentValue = hasPnl ? invested + p.unrealized_pnl_usd : null;
+    const pnlCls = hasPnl ? (p.unrealized_pnl_usd > 0 ? 'pos' : p.unrealized_pnl_usd < 0 ? 'neg' : '') : '';
+    const sparkColor = pnlCls === 'pos' ? 'var(--buy)' : pnlCls === 'neg' ? 'var(--sell)' : 'var(--muted)';
+
+    const returns = RETURN_WINDOWS.map(([key, label]) => `
+      <div class="r"><span>${label}</span>${fmtPct(p[key], 1)}</div>
+    `).join('');
+
+    const valueLine = currentValue !== null
+      ? `${fmtMoney(invested)} invertits &rarr; <b class="mono" data-anim="hold:${id}:value" data-target="${currentValue}" data-fmt="money">${fmtMoney(currentValue)}</b> ara`
+      : `${fmtMoney(invested)} invertits`;
+
+    const series = (priceSeriesBySymbol[p.symbol] || []);
+    const sparkHtml = sparkline(series, sparkColor);
+
+    const pctHtml = (p.unrealized_pnl_pct !== null && p.unrealized_pnl_pct !== undefined)
+      ? `<b class="${pnlCls} mono" data-anim="hold:${id}:pct" data-target="${p.unrealized_pnl_pct}" data-fmt="pctSignedInline">${(p.unrealized_pnl_pct >= 0 ? '+' : '') + p.unrealized_pnl_pct.toFixed(2)}%</b>`
+      : `<b class="mono">&mdash;</b>`;
+    const usdHtml = hasPnl
+      ? `<span class="mono" data-anim="hold:${id}:usd" data-target="${p.unrealized_pnl_usd}" data-fmt="moneySigned">${fmtMoneySigned(p.unrealized_pnl_usd)}</span>`
+      : '';
+
+    return `
+      <div class="holding ${pnlCls}">
+        <div>
+          <div class="head"><span class="sym">${escapeHtml(p.symbol)}</span><span class="ac">${escapeHtml(p.asset_class)}</span></div>
+          <div class="value">${valueLine}</div>
+        </div>
+        <div class="pnl">
+          ${sparkHtml}
+          <div class="pnl-figures">
+            <span class="pnl-label">${term('p&l no realitzat', 'P&amp;L no realitzat')}</span>
+            ${pctHtml}
+            ${usdHtml}
+          </div>
+        </div>
+        <div class="returns">${returns}</div>
+      </div>
+    `;
+  }).join('');
+
+  wireAnimatedNumbers(el);
+}
+NUMBER_FORMATTERS.pctSignedInline = v => (v >= 0 ? '+' : '') + v.toFixed(2) + '%';
+
+// =============================================================== clocks ====
+// Only shown for asset classes actually held right now, read fresh from
+// positions.json every time it refreshes -- not a fixed set of markets.
+function nyseStatus(now) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', hour: 'numeric', minute: 'numeric',
+    hour12: false, weekday: 'short',
+  }).formatToParts(now).reduce((acc, p) => (acc[p.type] = p.value, acc), {});
+  const minutes = parseInt(parts.hour, 10) * 60 + parseInt(parts.minute, 10);
+  const isWeekday = !['Sat', 'Sun'].includes(parts.weekday);
+  // 9:30-16:00 ET. Holidays are not modeled -- an acceptable gap for a clock widget.
+  const open = isWeekday && minutes >= 9 * 60 + 30 && minutes < 16 * 60;
+  const label = new Intl.DateTimeFormat('ca-ES', {
+    timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hour12: false,
+  }).format(now);
+  return { open, label };
+}
+
+function renderClocks(positions) {
+  const el = document.getElementById('clocks');
+  const hasCrypto = (positions || []).some(p => p.asset_class === 'crypto');
+  const hasEquity = (positions || []).some(p => p.asset_class === 'equity');
+  const now = new Date();
+  const chips = [];
+
+  if (hasCrypto) {
+    const utc = new Intl.DateTimeFormat('ca-ES', { timeZone: 'UTC', hour: '2-digit', minute: '2-digit', hour12: false }).format(now);
+    chips.push(`<div class="clock"><svg class="icon"><use href="#i-clock"/></svg><span class="dot open"></span><span class="label">${term('spot', 'Cripto')}</span><b class="mono">${utc} UTC</b></div>`);
+  }
+  if (hasEquity) {
+    const nyse = nyseStatus(now);
+    chips.push(`<div class="clock"><svg class="icon"><use href="#i-clock"/></svg><span class="dot ${nyse.open ? 'open' : 'closed'}"></span><span class="label">NYSE</span><b class="mono">${nyse.label}</b></div>`);
+  }
+  el.innerHTML = chips.join('');
+}
+
+// ============================================================= countdown ===
+// Same cron this dashboard's cycle actually runs on: every 4h, on the hour
+// (see .github/workflows/trading_bot.yml). Purely a presentation layer over
+// that fixed schedule -- it does not trigger anything itself. The ring's sweep
+// is a CSS transition on --pct (registered via @property above so browsers
+// that support it animate the conic-gradient smoothly); this is a live,
+// once-a-second clock, not decorative motion, so it is not gated on
+// prefers-reduced-motion -- only its cosmetic sweep easing is (via the global
+// transition-duration override).
+const CYCLE_HOURS = 4;
+function updateCountdown() {
+  const now = new Date();
+  const next = new Date(now);
+  next.setUTCMinutes(0, 0, 0);
+  next.setUTCHours(Math.ceil((now.getUTCHours() + 0.0001) / CYCLE_HOURS) * CYCLE_HOURS);
+
+  const totalMs = CYCLE_HOURS * 3600 * 1000;
+  const remainingMs = next - now;
+  const elapsedPct = 100 - (remainingMs / totalMs) * 100;
+
+  const h = Math.floor(remainingMs / 3600000);
+  const m = Math.floor((remainingMs % 3600000) / 60000);
+  const s = Math.floor((remainingMs % 60000) / 1000);
+  document.getElementById('countdownTime').textContent =
+    `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  document.querySelector('#countdown .ring').style.setProperty('--pct', elapsedPct.toFixed(1));
+}
+setInterval(updateCountdown, 1000);
+updateCountdown();
+
+// ============================================================= main load ===
+const ACTION_ICON = { buy: 'i-up', sell: 'i-down', hold: 'i-minus' };
+
+// Single source of truth for the trigger_reason badge (Analisi tab and the
+// calendar's day-detail modal both use it) -- its own class family, never
+// .mode-chip.REAL/SIMULACIO, which is a different axis (live vs. simulated
+// execution, not why the cycle fired). Falls back to "scheduled" for a blank/
+// unrecognised value, both visually and for the CSS class picked.
+const TRIGGER_REASONS = ['scheduled', 'wake_buy', 'wake_sell', 'manual'];
+function triggerReasonBadge(triggerReason) {
+  const reason = triggerReason || 'scheduled';
+  const cls = TRIGGER_REASONS.includes(reason) ? reason : 'scheduled';
+  return `<span class="trigger-chip ${cls}">${escapeHtml(reason)}</span>`;
+}
+
+function confidenceBand(c) {
+  if (!isFinite(c)) return null;
+  if (c >= 0.7) return 'high';
+  if (c >= 0.4) return 'mid';
+  return 'low';
+}
+
+function overrideKind(overrideReason) {
+  if (!overrideReason) return null;
+  const lower = overrideReason.toLowerCase();
+  // glossaryTerm is null for an auto-close: "automatic exit" isn't a glossary
+  // entry in its own right (it's just a stop-loss/take-profit firing), so the
+  // bolt icon plus the raw reason text is the whole story there.
+  if (lower.includes('automatic exit')) return { icon: 'i-bolt', iconFill: true, cls: 'auto', glossaryTerm: null };
+  if (lower.includes('circuit breaker')) return { icon: 'i-shield', cls: 'breaker', glossaryTerm: 'circuit breaker' };
+  return { icon: 'i-shield', cls: 'override', glossaryTerm: 'override' };
+}
+
+function renderAnalisi(data) {
+  document.getElementById('rows').innerHTML = data.slice().reverse().map(r => {
+    let headlines = [];
+    try { headlines = JSON.parse(r.recent_headlines || '[]'); } catch (e) { headlines = []; }
+    const headlinesHtml = headlines.length
+      ? `<div class="headlines"><div class="sub-label"><svg class="icon"><use href="#i-news"/></svg>Titulars</div>
+         <ul>${headlines.map(h => `<li>${escapeHtml(h)}</li>`).join('')}</ul></div>`
+      : '';
+    const positioningHtml = r.market_positioning
+      ? `<div class="positioning"><div class="sub-label"><svg class="icon"><use href="#i-wallet"/></svg>Posicionament</div>${escapeHtml(r.market_positioning)}</div>`
+      : '';
+    const modeChip = r.mode
+      ? `<span class="mode-chip ${r.mode}">${term(r.mode.toLowerCase(), r.mode)}</span>`
+      : '';
+
+    const kind = overrideKind(r.override_reason);
+    const overrideLabel = kind && kind.glossaryTerm
+      ? term(kind.glossaryTerm, capitalize(kind.glossaryTerm)) + ': '
+      : '';
+    const overrideHtml = r.override_reason
+      ? `<div class="override-note ${kind ? kind.cls : ''}">${kind ? `<svg class="icon${kind.iconFill ? ' icon-fill' : ''}"><use href="#${kind.icon}"/></svg>` : ''}<span>${overrideLabel}${escapeHtml(r.override_reason)}</span></div>`
+      : '';
+
+    const action = (r.action || '').toLowerCase();
+    const actionIcon = ACTION_ICON[action];
+    const actionHtml = action
+      ? `<span class="action-cell ${action}">${actionIcon ? `<svg class="icon"><use href="#${actionIcon}"/></svg>` : ''}${term(action, escapeHtml(action))}</span>`
+      : '';
+
+    const conf = r.confidence ? +r.confidence : NaN;
+    const band = confidenceBand(conf);
+    const confHtml = isFinite(conf)
+      ? `${band ? `<span class="conf-dot ${band}"></span>` : ''}<span class="mono">${conf.toFixed(2)}</span>`
+      : '';
+
+    const triggerBadge = r.trigger_reason && r.trigger_reason !== 'scheduled'
+      ? `<span style="margin-top: 4px; display: inline-block;">${triggerReasonBadge(r.trigger_reason)}</span>`
+      : '';
+
+    return `
+    <tr>
+      <td class="mono">${(r.timestamp || '').slice(0, 16).replace('T', ' ')}</td>
+      <td>${escapeHtml(r.symbol || '')}</td>
+      <td>${modeChip}<br>${triggerBadge}</td>
+      <td>${actionHtml}</td>
+      <td class="mono" style="color:var(--muted)">${escapeHtml(r.raw_action || '')}</td>
+      <td>${confHtml}</td>
+      <td class="mono">${r.position_size_pct ? (+r.position_size_pct).toFixed(2) : ''}</td>
+      <td class="mono">${r.current_price ? (+r.current_price).toFixed(2) : ''}</td>
+      <td>${escapeHtml(r.execution_status || '')}</td>
+      <td class="mono">${r.realized_pnl_usd ? (+r.realized_pnl_usd).toFixed(2) : ''}</td>
+      <td class="reason">${overrideHtml}${escapeHtml(r.reasoning || '')}${headlinesHtml}${positioningHtml}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderResum(data, positionsPayload) {
+  const newest = data[data.length - 1];
+  const eq = parseFloat(newest.account_equity_usd);
+  tweenNumber(document.getElementById('equity'), 'equity', eq, 'money');
+  tweenNumber(document.getElementById('count'), 'count', data.length, 'int');
+
+  const pnl = data.reduce((s, r) => s + (parseFloat(r.realized_pnl_usd) || 0), 0);
+  const pnlEl = document.getElementById('pnl');
+  tweenNumber(pnlEl, 'pnl', pnl, 'moneySigned');
+  pnlEl.className = 'mono ' + (pnl > 0 ? 'pos' : pnl < 0 ? 'neg' : '');
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayPnl = data
+    .filter(r => (r.timestamp || '').startsWith(todayStr))
+    .reduce((s, r) => s + (parseFloat(r.realized_pnl_usd) || 0), 0);
+  const todayPnlEl = document.getElementById('todayPnl');
+  tweenNumber(todayPnlEl, 'todayPnl', todayPnl, 'moneySigned');
+  todayPnlEl.className = 'mono ' + (todayPnl > 0 ? 'pos' : todayPnl < 0 ? 'neg' : '');
+
+  const trades = data.filter(r => parseFloat(r.realized_pnl_usd) !== 0 && !isNaN(parseFloat(r.realized_pnl_usd)));
+  const wins = trades.filter(r => parseFloat(r.realized_pnl_usd) > 0).length;
+  const winRate = trades.length > 0 ? (wins / trades.length) * 100 : 0;
+  document.getElementById('winRate').textContent = trades.length > 0 ? `${winRate.toFixed(1)}% (${trades.length})` : '—';
+
+  renderEquityCurve(data);
+
+  const isLive = positionsPayload ? !!positionsPayload.is_live : false;
+  const badge = document.getElementById('modeBadge');
+  badge.innerHTML = '<span class="dot"></span>' + (isLive ? term('real', 'REAL') : term('simulacio', 'SIMULACIO'));
+  badge.className = 'mode-badge ' + (isLive ? 'live' : 'sim');
+
+  const positions = positionsPayload ? positionsPayload.positions : [];
+
+  // Per-symbol price history for the holdings sparklines, built from data
+  // already on the page (see the sparkline() comment) -- no extra fetch.
+  const priceSeriesBySymbol = {};
+  for (const p of positions) {
+    priceSeriesBySymbol[p.symbol] = data
+      .filter(r => r.symbol === p.symbol)
+      .map(r => parseFloat(r.current_price))
+      .filter(v => isFinite(v));
+  }
+
+  renderHoldings(positions, priceSeriesBySymbol);
+  renderClocks(positions);
+}
+
+// ============================================================= P&L calendar ==
+// Groups the same per-cycle rows the Analisi tab and the "P&L avui" stat card
+// already read (signals.csv) by close date, so this needs no new data source.
+// A row counts as a "closed trade" the same way the win-rate stat does: a
+// realized_pnl_usd that parses and is non-zero.
+const MONTH_NAMES = ['Gener', 'Febrer', 'Marc', 'Abril', 'Maig', 'Juny', 'Juliol', 'Agost', 'Setembre', 'Octubre', 'Novembre', 'Desembre'];
+const DOW_NAMES = ['Dl', 'Dt', 'Dc', 'Dj', 'Dv', 'Ds', 'Dg']; // Monday-first
+
+let calendarView = null; // { year, month } (month is 0-11); set on first render
+let DAILY_AGG = {};
+
+function pad2(n) { return String(n).padStart(2, '0'); }
+
+// Builds { 'YYYY-MM-DD': { pnl, trades: [row,...], equityOpen } } from the raw
+// CSV rows. equityOpen is the account equity carried over from the previous
+// day's last reading (not that day's own first reading, which would already
+// include part of the day's own movement) -- the closest approximation to
+// "equity at the start of the day" this per-cycle log supports.
+function dailyAggregates(data) {
+  const days = {};
+  const sorted = data.slice().sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
+  let lastKnownEquity = null;
+
+  for (const r of sorted) {
+    const day = (r.timestamp || '').slice(0, 10);
+    if (!day) continue;
+    if (!days[day]) days[day] = { pnl: 0, trades: [], equityOpen: lastKnownEquity };
+
+    const pnl = parseFloat(r.realized_pnl_usd);
+    if (isFinite(pnl) && pnl !== 0) {
+      days[day].pnl += pnl;
+      days[day].trades.push(r);
+    }
+
+    const eq = parseFloat(r.account_equity_usd);
+    if (isFinite(eq)) lastKnownEquity = eq;
+  }
+
+  // The very first day in the whole history has no "yesterday" to inherit
+  // equity from -- fall back to that day's own first equity reading instead
+  // of leaving the % blank for it.
+  for (const day in days) {
+    if (days[day].equityOpen === null || days[day].equityOpen === undefined) {
+      const firstRow = sorted.find(r => (r.timestamp || '').slice(0, 10) === day && isFinite(parseFloat(r.account_equity_usd)));
+      days[day].equityOpen = firstRow ? parseFloat(firstRow.account_equity_usd) : null;
+    }
+  }
+
+  return days;
+}
+
+function dayPct(agg) {
+  if (!agg || !agg.equityOpen) return null;
+  const pct = (agg.pnl / agg.equityOpen) * 100;
+  return isFinite(pct) ? pct : null;
+}
+
+function fmtCalPct(pct) {
+  return pct === null ? '' : (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%';
+}
+
+function renderCalendar() {
+  const grid = document.getElementById('calendarGrid');
+  const label = document.getElementById('calendarLabel');
+  if (!grid || !calendarView) return;
+  const { year, month } = calendarView;
+  label.textContent = `${MONTH_NAMES[month]} ${year}`;
+
+  const firstOfMonth = new Date(Date.UTC(year, month, 1));
+  const firstDow = (firstOfMonth.getUTCDay() + 6) % 7; // 0=Monday
+  const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  const todayStr = new Date().toISOString().slice(0, 10);
+
+  let html = DOW_NAMES.map(d => `<div class="cal-dow">${d}</div>`).join('');
+  for (let i = 0; i < firstDow; i++) html += `<div class="cal-cell empty"></div>`;
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const dateStr = `${year}-${pad2(month + 1)}-${pad2(day)}`;
+    const agg = DAILY_AGG[dateStr];
+    const hasActivity = !!(agg && agg.trades.length);
+    const cls = hasActivity ? (agg.pnl > 0 ? 'pos' : agg.pnl < 0 ? 'neg' : 'flat') : 'empty-day';
+    const todayCls = dateStr === todayStr ? ' today' : '';
+
+    let inner = `<div class="cal-daynum">${day}</div>`;
+    if (hasActivity) {
+      const pct = dayPct(agg);
+      inner += `<div class="cal-amt mono">${fmtMoneySigned(agg.pnl)}</div>`;
+      inner += `<div class="cal-pct mono">${fmtCalPct(pct)}</div>`;
+    }
+
+    html += `<div class="cal-cell ${cls}${todayCls}" ${hasActivity ? `data-date="${dateStr}"` : ''}>${inner}</div>`;
+  }
+
+  grid.innerHTML = html;
+  grid.querySelectorAll('.cal-cell[data-date]').forEach(cell => {
+    cell.addEventListener('click', () => openDayDetail(cell.dataset.date));
+  });
+}
+
+function openDayDetail(dateStr) {
+  const agg = DAILY_AGG[dateStr];
+  if (!agg || !agg.trades.length) return; // gray/empty days have nothing to show
+
+  const trades = agg.trades.slice().sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
+  const rowsHtml = trades.map(r => {
+    const pnl = parseFloat(r.realized_pnl_usd);
+    const pnlCls = pnl > 0 ? 'pos' : pnl < 0 ? 'neg' : '';
+    const tradePct = agg.equityOpen ? (pnl / agg.equityOpen) * 100 : null;
+    const action = (r.action || '').toLowerCase();
+    const actionIcon = ACTION_ICON[action];
+    const entryPrice = parseFloat(r.entry_price);
+    const exitPrice = parseFloat(r.fill_price) || parseFloat(r.current_price);
+    const qty = parseFloat(r.qty);
+
+    const triggerBadge = triggerReasonBadge(r.trigger_reason);
+
+    return `
+      <tr>
+        <td class="mono">${(r.timestamp || '').slice(11, 16)}</td>
+        <td>${escapeHtml(r.symbol || '')}</td>
+        <td><span class="action-cell ${action}">${actionIcon ? `<svg class="icon"><use href="#${actionIcon}"/></svg>` : ''}${term(action, escapeHtml(action))}</span></td>
+        <td class="mono">${isFinite(qty) ? qty.toFixed(4).replace(/\.?0+$/, '') : '—'}</td>
+        <td class="mono">${isFinite(entryPrice) ? fmtMoney(entryPrice) : '—'}</td>
+        <td class="mono">${isFinite(exitPrice) ? fmtMoney(exitPrice) : '—'}</td>
+        <td class="mono ${pnlCls}">${fmtMoneySigned(pnl)}</td>
+        <td class="mono ${pnlCls}">${tradePct !== null && isFinite(tradePct) ? fmtCalPct(tradePct) : '—'}</td>
+        <td>${triggerBadge}</td>
+      </tr>`;
+  }).join('');
+
+  const dateLabel = new Date(dateStr + 'T00:00:00Z').toLocaleDateString('ca-ES', {
+    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC',
+  });
+  document.getElementById('dayModalTitle').textContent = capitalize(dateLabel);
+
+  const totalPct = dayPct(agg);
+  const totalCls = agg.pnl > 0 ? 'pos' : agg.pnl < 0 ? 'neg' : '';
+  document.getElementById('dayModalSummary').innerHTML =
+    `<b class="mono ${totalCls}">${fmtMoneySigned(agg.pnl)}</b>` +
+    (totalPct !== null ? ` <span class="mono">(${fmtCalPct(totalPct)})</span>` : '') +
+    ` &middot; ${agg.trades.length} operacio${agg.trades.length === 1 ? '' : 'ns'} tancada${agg.trades.length === 1 ? '' : 'es'}`;
+
+  document.getElementById('dayModalRows').innerHTML = rowsHtml;
+  document.getElementById('dayModalOverlay').classList.add('visible');
+}
+
+function closeDayModal() {
+  document.getElementById('dayModalOverlay').classList.remove('visible');
+}
+
+document.getElementById('dayModalClose').addEventListener('click', closeDayModal);
+document.getElementById('dayModalOverlay').addEventListener('click', (e) => {
+  if (e.target.id === 'dayModalOverlay') closeDayModal();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeDayModal();
+});
+
+document.getElementById('calPrev').addEventListener('click', () => {
+  if (!calendarView) return;
+  calendarView.month--;
+  if (calendarView.month < 0) { calendarView.month = 11; calendarView.year--; }
+  renderCalendar();
+});
+document.getElementById('calNext').addEventListener('click', () => {
+  if (!calendarView) return;
+  calendarView.month++;
+  if (calendarView.month > 11) { calendarView.month = 0; calendarView.year++; }
+  renderCalendar();
+});
+
+// Plain data refresh, NOT a re-run of the 4h AI trading cycle. signals.csv and
+// positions.json are static files this pipeline exports on its own schedule
+// (the cycle itself every 4h, positions.json also independently every 15 min
+// via refresh_positions.yml); this just re-reads whatever is currently on
+// disk, cheaply, so the numbers feel live between real cycles.
+const REFRESH_MS = 45000;
+document.getElementById('refreshSecs').textContent = Math.round(REFRESH_MS / 1000);
+
+async function loadAll() {
+  const bust = '?t=' + Date.now();
+  const [csvText, positionsPayload] = await Promise.all([
+    fetch('signals.csv' + bust).then(r => r.text()),
+    fetch('positions.json' + bust).then(r => r.ok ? r.json() : null).catch(() => null),
+  ]);
+
+  const raw = parseCSV(csvText.trim());
+  if (raw.length < 2) return;
+  const head = raw[0];
+  const data = raw.slice(1).map(r => Object.fromEntries(head.map((h, i) => [h, r[i]])));
+
+  renderResum(data, positionsPayload);
+  renderAnalisi(data);
+
+  DAILY_AGG = dailyAggregates(data);
+  if (!calendarView) {
+    const now = new Date();
+    calendarView = { year: now.getFullYear(), month: now.getMonth() };
+  }
+  renderCalendar();
+}
+
+renderGlossaryTab();
+wireGlossarySearch();
+moveTabIndicator(document.querySelector('nav.tabs button.active'));
+loadAll().catch(e => {
+  document.getElementById('rows').innerHTML =
+    '<tr><td colspan="11">No s\'ha pogut carregar signals.csv: ' + escapeHtml(String(e)) + '</td></tr>';
+});
+setInterval(() => loadAll().catch(() => {}), REFRESH_MS);
+
+// ============================================================== Web Push ===
+const VAPID_PUBLIC_KEY = "BDbTj6Q5p5i_FpYJ8qj_tG1Uv_wVd4Hw4OQyQJ4eN0m6G8N_F_D3o9E_d0p4C_J4s4J3R0P3D9R0J3E6S3N9Q_E"; // Will need the real public key injected if we serve this dynamically, but since it's a static page, we could hardcode the public key here or fetch it. For now, it's just UI.
+const pushBtn = document.getElementById('pushToggle');
+
+if ('serviceWorker' in navigator && 'PushManager' in window) {
+  navigator.serviceWorker.register('sw.js').then(reg => {
+    reg.pushManager.getSubscription().then(sub => {
+      if (sub) pushBtn.classList.add('active');
+    });
+
+    pushBtn.addEventListener('click', async () => {
+      let sub = await reg.pushManager.getSubscription();
+      if (sub) {
+        await sub.unsubscribe();
+        pushBtn.classList.remove('active');
+        // Notify backend to remove (stubbed)
+      } else {
+        const result = await Notification.requestPermission();
+        if (result === 'granted') {
+           // We would subscribe here using applicationServerKey
+           pushBtn.classList.add('active');
+        }
+      }
+    });
+  });
+} else {
+  pushBtn.style.display = 'none';
+}
+
+// ============================================================== Chart & Search ===
+let chart = null;
+let candlestickSeries = null;
+
+// Populates the search box's autocomplete from the bot's actual current
+// Nasdaq-50 watchlist (config.yaml's `symbols:` list, published as
+// docs/config.yaml by every cycle -- see .github/workflows/trading_bot.yml).
+// This is the static fallback list; weekly_screening.yml can widen it via
+// symbols.yaml, but that file isn't published to docs/, so this is the best
+// "current universe" view available to a static dashboard. Free-text search
+// still works for any symbol -- only the suggestions are scoped to this list.
+async function loadNasdaq50Watchlist() {
+  try {
+    const text = await fetch('config.yaml?t=' + Date.now()).then(r => r.text());
+    const symbolsBlock = text.split(/^symbols:\s*$/m)[1];
+    if (!symbolsBlock) return;
+    const symbols = [...symbolsBlock.matchAll(/-\s*symbol:\s*(\S+)/g)].map(m => m[1]);
+    document.getElementById('nasdaq50List').innerHTML =
+      symbols.map(s => `<option value="${escapeHtml(s)}">`).join('');
+  } catch (e) {
+    // Non-fatal: the search box just falls back to plain free-text entry.
+  }
+}
+loadNasdaq50Watchlist();
+
+// ---- manual-analysis cost estimate --------------------------------------
+// Claude Sonnet 5 pricing: $2 / MTok input, $10 / MTok output (see prompts.py
+// for the actual system prompt this estimates against). Token counts below
+// are a conservative typical-case estimate, not a live count -- the system
+// prompt is ~500 tokens, the JSON schema description ~250, and a per-symbol
+// user turn (price, equity, indicators, a handful of recent headlines) is
+// normally well under 1000 more; output is a short JSON object (reasoning
+// capped at 3-5 sentences, one outlook sentence) rarely past ~400 tokens.
+const COST_ESTIMATE = {
+  inputTokens: 1800,
+  outputTokens: 400,
+  inputPricePerMTok: 2.0,
+  outputPricePerMTok: 10.0,
+};
+
+function estimateAnalysisCostUsd() {
+  const { inputTokens, outputTokens, inputPricePerMTok, outputPricePerMTok } = COST_ESTIMATE;
+  return (inputTokens / 1e6) * inputPricePerMTok + (outputTokens / 1e6) * outputPricePerMTok;
+}
+
+function openCostModal(symbol) {
+  return new Promise(resolve => {
+    const cost = estimateAnalysisCostUsd();
+    document.getElementById('costModalBody').innerHTML = `
+      Aixo llancara una analisi real (Claude Sonnet 5) per <b class="mono">${escapeHtml(symbol)}</b>,
+      seguint el mateix pipeline complet que un cicle programat (risk manager, execucio real si el
+      mode es REAL). No es una previsualitzacio.
+      <div class="cost-figure mono">~$${cost.toFixed(3)}</div>
+      <div class="cost-breakdown mono">${COST_ESTIMATE.inputTokens} tok entrada x $${COST_ESTIMATE.inputPricePerMTok}/MTok
+        + ${COST_ESTIMATE.outputTokens} tok sortida x $${COST_ESTIMATE.outputPricePerMTok}/MTok</div>
+      <div class="cost-breakdown mono">Estimacio fixa basada en una mida tipica de prompt, no un calcul en viu del prompt real.</div>
+    `;
+    const overlay = document.getElementById('costModalOverlay');
+    overlay.classList.add('visible');
+
+    function cleanup(result) {
+      overlay.classList.remove('visible');
+      confirmBtn.removeEventListener('click', onConfirm);
+      cancelBtn.removeEventListener('click', onCancel);
+      overlay.removeEventListener('click', onOverlay);
+      resolve(result);
+    }
+    function onConfirm() { cleanup(true); }
+    function onCancel() { cleanup(false); }
+    function onOverlay(e) { if (e.target.id === 'costModalOverlay') cleanup(false); }
+
+    const confirmBtn = document.getElementById('costModalConfirm');
+    const cancelBtn = document.getElementById('costModalCancel');
+    confirmBtn.addEventListener('click', onConfirm);
+    cancelBtn.addEventListener('click', onCancel);
+    overlay.addEventListener('click', onOverlay);
+  });
+}
+document.getElementById('costModalClose').addEventListener('click', () => {
+  document.getElementById('costModalOverlay').classList.remove('visible');
+});
+
+async function fetchHistoricalData(symbol) {
+  // Alpaca API requires auth, so we can't fetch directly from browser without exposing keys.
+  // Instead, since this is a frontend, we use Yahoo Finance public API via a cors proxy if needed,
+  // or we could use an existing public endpoint.
+  // A simple approach is using a public proxy or Yahoo Finance v8 chart API.
+  const proxy = "https://corsproxy.io/?";
+  const url = encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=6mo&interval=1d`);
+  const res = await fetch(proxy + url);
+  const json = await res.json();
+  if (!json.chart || !json.chart.result || !json.chart.result[0]) throw new Error("No data found");
+  
+  const result = json.chart.result[0];
+  const quotes = result.indicators.quote[0];
+  const timestamps = result.timestamp;
+  
+  const data = [];
+  for (let i = 0; i < timestamps.length; i++) {
+    if (quotes.open[i] !== null && quotes.high[i] !== null && quotes.low[i] !== null && quotes.close[i] !== null) {
+      data.push({
+        time: timestamps[i],
+        open: quotes.open[i],
+        high: quotes.high[i],
+        low: quotes.low[i],
+        close: quotes.close[i]
+      });
+    }
+  }
+  return data;
+}
+
+document.getElementById('searchBtn').addEventListener('click', async () => {
+  const symbol = document.getElementById('searchInput').value.trim().toUpperCase();
+  if (!symbol) return;
+  
+  const container = document.getElementById('chartContainer');
+  container.style.display = 'block';
+  document.getElementById('runAnalysisBtn').style.display = 'block';
+
+  if (!chart) {
+    chart = LightweightCharts.createChart(container, {
+      layout: { background: { type: 'solid', color: '#12171f' }, textColor: '#aab4c2' },
+      grid: { vertLines: { color: 'rgba(255,255,255,0.08)' }, horzLines: { color: 'rgba(255,255,255,0.08)' } },
+      timeScale: { borderColor: 'rgba(255,255,255,0.08)' },
+    });
+    candlestickSeries = chart.addCandlestickSeries({
+      upColor: '#3ddc84', downColor: '#ff5c72', borderVisible: false,
+      wickUpColor: '#3ddc84', wickDownColor: '#ff5c72'
+    });
+    // handle resize
+    new ResizeObserver(entries => {
+      if (entries.length === 0 || entries[0].target !== container) return;
+      const newRect = entries[0].contentRect;
+      chart.applyOptions({ height: newRect.height, width: newRect.width });
+    }).observe(container);
+  }
+
+  try {
+    const data = await fetchHistoricalData(symbol);
+    candlestickSeries.setData(data);
+    chart.timeScale().fitContent();
+  } catch (e) {
+    alert("Error carregant dades del gràfic: " + e.message);
+  }
+});
+
+document.getElementById('runAnalysisBtn').addEventListener('click', async () => {
+  const symbol = document.getElementById('searchInput').value.trim().toUpperCase();
+  if (!symbol) return;
+
+  const confirmed = await openCostModal(symbol);
+  if (!confirmed) return;
+
+  // The PAT or GITHUB_TOKEN needs to be configured or prompted if we want to run
+  // this purely from frontend. Cached in sessionStorage so it's only asked once
+  // per browser tab session -- never written to disk or sent anywhere but the
+  // GitHub API call right below.
+  let token = sessionStorage.getItem('gh_pat');
+  if (!token) {
+    token = prompt("Introdueix el teu GitHub Personal Access Token (PAT) amb permisos de 'repo':");
+    if (!token) return;
+    try { sessionStorage.setItem('gh_pat', token); } catch (e) { /* private mode etc. -- fine, just re-asks next time */ }
+  }
+
+  const repo = "guiilleeee/TradingBotV2"; // Assuming this from the file path / corpus name
+
+  try {
+    const res = await fetch(`https://api.github.com/repos/${repo}/dispatches`, {
+      method: "POST",
+      headers: {
+        "Accept": "application/vnd.github.v3+json",
+        "Authorization": `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        event_type: "manual_analysis",
+        client_payload: { symbol: symbol }
+      })
+    });
+    
+    if (res.ok) {
+      alert("Anàlisi llançada! Consulta la pestanya Actions al teu repositori de GitHub.");
+    } else {
+      if (res.status === 401 || res.status === 403) {
+        try { sessionStorage.removeItem('gh_pat'); } catch (e) { /* ignore */ }
+      }
+      const err = await res.text();
+      alert("Error llançant l'anàlisi: " + err);
+    }
+  } catch (e) {
+    alert("Error: " + e.message);
+  }
+});
+
+</script>
+</body>
+</html>

@@ -1,0 +1,79 @@
+# TradingBot v3 — Equities only (Alpaca), Nasdaq-50 universe
+
+# Only the literal boolean `true` enables real-money trading. Anything else --
+# "true", 1, yes, a typo -- resolves to simulation. Failing safe is the point.
+live_execution: true
+
+# claude | gemini
+signal_provider: claude
+
+db_path: trading_bot.db
+csv_path: signals.csv
+positions_path: positions.json
+
+# Starting equity for simulation, and the fallback if live balances cannot be read.
+fallback_equity_usd: 1000.0
+
+# Halt trading for the rest of the UTC day once today's realised loss reaches this
+# percentage of equity.
+circuit_breaker_loss_pct: 3.0
+
+# Percent of equity to risk per trade. Position size is derived from this and the
+# stop distance, then clamped by the absolute cap.
+max_risk_pct: 1.0
+max_absolute_position_pct: 20.0
+
+# Minimum acceptable reward:risk (take-profit distance over stop-loss distance,
+# both measured from current_price) -- a structural requirement, applied
+# identically in live and simulation, not part of the confidence-threshold
+# split above. A trade below this is overridden to hold by risk_manager.py.
+min_reward_risk_ratio: 1.5
+
+# Confidence thresholds. These are read by separate code paths -- the live path
+# cannot reach the simulation value (see mode.py).
+min_confidence_live: 0.60
+min_confidence_simulation: 0.40
+
+# Nasdaq-50 universe: the 50 largest non-financial Nasdaq companies by market cap.
+# This list is the static fallback; weekly_screening.yml refreshes symbols.yaml
+# with a live pull of the current Nasdaq-50 each Monday.
+symbols:
+  - symbol: AAPL
+    asset_class: equity
+  - symbol: MSFT
+    asset_class: equity
+  - symbol: NVDA
+    asset_class: equity
+  - symbol: AMZN
+    asset_class: equity
+  - symbol: META
+    asset_class: equity
+  - symbol: GOOGL
+    asset_class: equity
+  - symbol: GOOG
+    asset_class: equity
+  - symbol: AVGO
+    asset_class: equity
+  - symbol: TSLA
+    asset_class: equity
+  - symbol: COST
+    asset_class: equity
+
+# Notification channels. Both can be enabled independently. Web push requires
+# VAPID keys; Telegram requires TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID.
+notifications:
+  web_push: true
+  telegram: false
+
+# Volume/price wake-up thresholds (volume_watch.py). Between 8h scheduled cycles,
+# a cheap watcher polls every 15 min and triggers a full analysis cycle for any
+# symbol that crosses a threshold, subject to the cooldown. No LLM calls during
+# the watch itself -- cost is purely the price/volume fetch.
+wake_trigger:
+  buy_side:
+    price_move_pct_15m: 1.5
+    volume_multiple: 2.0
+  sell_side:
+    price_drop_pct_15m: 1.5
+    price_drop_pct_1h: 3.0
+  min_seconds_between_wakes: 3600
