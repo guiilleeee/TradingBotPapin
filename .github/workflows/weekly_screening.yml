@@ -1,0 +1,56 @@
+name: Weekly symbol screening
+
+on:
+  # Cron trigger disabled: equities (this job's whole point -- it also
+  # rescreens crypto, but the equity side is why it runs weekly at all) are
+  # deferred entirely until Alpaca is set up. workflow_dispatch stays enabled
+  # so this can still be run manually.
+  # schedule:
+  #   - cron: '0 6 * * 1'  # Monday 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: weekly-symbol-screening
+  cancel-in-progress: false
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run tests
+        run: pytest -q
+
+      - name: Run weekly screening
+        env:
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+          # Optional: alerts are a no-op with either of these unset (telegram_alerts.py).
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python screening.py --output symbols.yaml
+
+      - name: Commit symbols.yaml
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add symbols.yaml
+          if git diff --staged --quiet; then
+            echo "No change to symbols.yaml this run (screening left it untouched, or it is unchanged)."
+          else
+            git commit -m "chore: weekly symbol screening [skip ci]"
+            git push
+          fi

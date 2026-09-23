@@ -1,0 +1,100 @@
+name: Manual Analysis
+
+# Fired by the dashboard's Cercador tab ("Executar analisi ara" button) via a
+# repository_dispatch, after the user has confirmed the estimated cost. Runs the
+# searched symbol through the exact same pipeline as a scheduled cycle --
+# risk_manager.validate, execute_trade, the lot -- restricted to just that one
+# symbol via --trigger-symbols, tagged trigger_reason=manual so the dashboard
+# badge and the calendar's trigger column can tell it apart from a normal cycle.
+
+on:
+  repository_dispatch:
+    types: [manual_analysis]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: trading-bot-cycle
+  cancel-in-progress: false
+
+jobs:
+  run-analysis:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run manual analysis
+        # Same secret set as trading_bot.yml -- ALPACA_API_SECRET (not
+        # ALPACA_SECRET_KEY) is the name execution.py actually reads; an earlier
+        # version of this workflow used the wrong name and every live order from
+        # this path failed Alpaca auth silently.
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_WORKSPACE_ID: ${{ secrets.ANTHROPIC_WORKSPACE_ID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python main.py --config config.yaml \
+            --trigger-symbols "${{ github.event.client_payload.symbol }}" \
+            --trigger-reason manual
+
+      - name: Publish dashboard
+        run: |
+          mkdir -p docs
+          cp dashboard.html docs/index.html
+          cp signals.csv docs/signals.csv
+          cp config.yaml docs/config.yaml
+          [ -f positions.json ] && cp positions.json docs/positions.json || true
+
+      - name: Commit results
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f docs/index.html docs/signals.csv docs/config.yaml signals.csv trading_bot.db
+          [ -f positions.json ] && git add -f positions.json docs/positions.json || true
+
+          if git diff --staged --quiet; then
+            echo "Nothing changed from this manual analysis."
+            exit 0
+          fi
+
+          git commit -m "chore: manual analysis for ${{ github.event.client_payload.symbol }} [skip ci]"
+
+          # Same race as trading_bot.yml: this workflow's push can land between an
+          # unrelated push and this checkout. Bounded rebase-and-retry rather than
+          # failing outright the moment the remote has moved.
+          max_attempts=3
+          attempt=1
+          while true; do
+            if git push; then
+              echo "Pushed on attempt $attempt."
+              exit 0
+            fi
+            if [ "$attempt" -ge "$max_attempts" ]; then
+              echo "::error::git push failed after $max_attempts attempts -- giving up. This manual analysis is committed in this job's checkout but not published."
+              exit 1
+            fi
+            echo "git push rejected (attempt $attempt/$max_attempts) -- rebasing onto the moved remote and retrying."
+            if ! git pull --rebase; then
+              echo "::error::git pull --rebase hit a real conflict -- aborting the rebase cleanly."
+              git rebase --abort 2>/dev/null || true
+              exit 1
+            fi
+            attempt=$((attempt + 1))
+            sleep 5
+          done

@@ -1,0 +1,99 @@
+name: Volume watch (off-schedule wake-up)
+
+on:
+  schedule:
+    # Every 15 minutes, same cadence as refresh_positions.yml. This is a cheap
+    # price/volume check -- no LLM calls unless a threshold is actually crossed,
+    # at which point it triggers a full trading cycle for the flagged symbol(s).
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: volume-watch
+  # If a new 15-min tick arrives while a wake cycle is still running, let the
+  # newer one cancel the old one -- the fresher data is more useful.
+  cancel-in-progress: true
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run volume watch (and trigger cycle if thresholds crossed)
+        # Needs the full secret set because it may invoke main.py for a real
+        # trading cycle if a symbol crosses the wake threshold.
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_WORKSPACE_ID: ${{ secrets.ANTHROPIC_WORKSPACE_ID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python volume_watch.py --config config.yaml
+
+      - name: Publish dashboard (only if a cycle ran)
+        run: |
+          mkdir -p docs
+          cp dashboard.html docs/index.html
+          cp signals.csv docs/signals.csv
+          cp config.yaml docs/config.yaml
+          [ -f positions.json ] && cp positions.json docs/positions.json || true
+          [ -f wake_state.json ] && true || true
+
+      - name: Commit results
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Always track wake_state.json (cooldown persistence across runs).
+          # The rest is only updated if a cycle actually ran.
+          git add -f wake_state.json || true
+          git add -f docs/index.html docs/signals.csv docs/config.yaml signals.csv trading_bot.db 2>/dev/null || true
+          [ -f positions.json ] && git add -f positions.json docs/positions.json 2>/dev/null || true
+
+          if git diff --staged --quiet; then
+            echo "Nothing changed this watch cycle."
+            exit 0
+          fi
+
+          git commit -m "chore: volume watch results [skip ci]"
+
+          # Same rebase-retry as trading_bot.yml for push races.
+          max_attempts=3
+          attempt=1
+          while true; do
+            if git push; then
+              echo "Pushed on attempt $attempt."
+              exit 0
+            fi
+
+            if [ "$attempt" -ge "$max_attempts" ]; then
+              echo "::error::git push failed after $max_attempts attempts."
+              exit 1
+            fi
+
+            echo "Push rejected (attempt $attempt/$max_attempts) -- rebasing."
+            if ! git pull --rebase; then
+              git rebase --abort 2>/dev/null || true
+              exit 1
+            fi
+
+            attempt=$((attempt + 1))
+            sleep 5
+          done
