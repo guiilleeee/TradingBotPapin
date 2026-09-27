@@ -59,11 +59,10 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
           ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
-          # Phone push (alerts + approval_mode). Alerts are a no-op with NTFY_TOPIC
-          # unset; approval_mode fails closed without it (notifications.py, approval.py).
-          NTFY_SERVER: ${{ secrets.NTFY_SERVER }}
-          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
-          NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
+          # Telegram (alerts + approval_mode). Alerts are a no-op with these unset;
+          # approval_mode fails closed without them (notifications.py, approval.py).
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python main.py --config config.yaml
 
       - name: Publish dashboard

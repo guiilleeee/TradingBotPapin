@@ -1,23 +1,22 @@
-"""Outbound alerts, delivered as phone push notifications through ntfy.
+"""Outbound alerts, delivered as Telegram messages from the bot to one chat.
 
-ntfy (https://ntfy.sh, or a self-hosted server) is a plain HTTP pub/sub service
-with Android and iOS apps: the bot POSTs a message to a topic, the app
-subscribed to that topic shows it as a native push notification. No account,
-no inbound endpoint on the bot's side -- which is what a short-lived GitHub
-Actions job or a systemd timer can actually use. approval.py builds its
-approve/reject round-trip on the same two calls (`ntfy_publish`, `ntfy_poll`).
+The bot calls the Telegram Bot API over plain HTTPS: `sendMessage` to deliver,
+`getUpdates` to read button taps. No webhook and no inbound endpoint on the
+bot's side -- which is what a short-lived GitHub Actions job or a systemd timer
+can actually use. approval.py builds its approve/reject round-trip on
+`telegram_call`.
 
 Configuration (environment, like every other secret):
-  NTFY_TOPIC   required; the topic the phone app subscribes to. On the public
-               ntfy.sh server the topic name IS the password -- use a long
-               random one (e.g. `openssl rand -hex 16`).
-  NTFY_SERVER  optional, default https://ntfy.sh
-  NTFY_TOKEN   optional access token, for a protected/self-hosted server.
+  TELEGRAM_BOT_TOKEN  the token @BotFather issued. Whoever holds it controls
+                      the bot, so it is redacted everywhere (secrets_redaction).
+  TELEGRAM_CHAT_ID    the numeric id of the one chat that receives alerts and
+                      may answer approvals.
 
 Every public alert function is fire-and-forget: it never raises, so an alert
-failure can never take a trading cycle down with it. With NTFY_TOPIC unset,
-every alert is a silent no-op. Text passes through secrets_redaction.sanitize
-before leaving the process.
+failure can never take a trading cycle down with it. With either variable unset
+(or malformed), every alert is a silent no-op. Text passes through
+secrets_redaction.sanitize before leaving the process, and is sent as plain text
+(no parse_mode) so model reasoning can never be read as markup.
 
 Web push is NOT implemented: the dashboard is a static page with nowhere to
 store subscriptions. `_send_web_push` stays a documented no-op.
@@ -25,7 +24,6 @@ store subscriptions. `_send_web_push` stays a documented no-op.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import re
@@ -35,91 +33,64 @@ import requests
 
 from secrets_redaction import sanitize as _sanitize
 
-DEFAULT_NTFY_SERVER = "https://ntfy.sh"
+TELEGRAM_API = "https://api.telegram.org"
 HTTP_TIMEOUT = 15.0
-# ntfy.sh rejects message bodies over 4096 bytes (they become attachments).
+# Telegram rejects messages over 4096 characters.
 MAX_MESSAGE_CHARS = 3500
 
-
-# ----------------------------------------------------------------------- ntfy
-
-
-def ntfy_settings() -> tuple[str, Optional[str], Optional[str]]:
-    """(server, topic, token) from the environment."""
-    server = (os.environ.get("NTFY_SERVER") or DEFAULT_NTFY_SERVER).rstrip("/")
-    return server, os.environ.get("NTFY_TOPIC") or None, os.environ.get("NTFY_TOKEN") or None
+_BOT_TOKEN_RE = re.compile(r"^\d{5,}:[A-Za-z0-9_-]{30,}$")
+_CHAT_ID_RE = re.compile(r"^-?\d{1,20}$")
 
 
-# On the public ntfy.sh server the topic name is the only secret, so a short or
-# guessable one would let anyone read trade proposals and answer approvals.
-# `tb-` + `openssl rand -hex 16` is 35 characters; anything under 24, or with
-# characters ntfy doesn't allow in a topic, is refused outright.
-_STRONG_TOPIC_RE = re.compile(r"^[A-Za-z0-9_-]{24,64}$")
+# ------------------------------------------------------------------- telegram
 
 
-def topic_is_strong(topic: Optional[str]) -> bool:
-    return bool(topic) and bool(_STRONG_TOPIC_RE.match(topic))
+def telegram_settings() -> tuple[Optional[str], Optional[str]]:
+    """(bot token, chat id) from the environment."""
+    token = (os.environ.get("TELEGRAM_BOT_TOKEN") or "").strip() or None
+    chat_id = (os.environ.get("TELEGRAM_CHAT_ID") or "").strip() or None
+    return token, chat_id
 
 
-def ntfy_configured() -> bool:
-    """A topic is set *and* strong enough to use. A weak one is treated as unset."""
-    topic = ntfy_settings()[1]
-    if topic is None:
+def credentials_valid(token: Optional[str], chat_id: Optional[str]) -> bool:
+    return bool(token and chat_id and _BOT_TOKEN_RE.match(token) and _CHAT_ID_RE.match(chat_id))
+
+
+def telegram_configured() -> bool:
+    """Both variables set *and* well-formed. A malformed pair is treated as unset."""
+    token, chat_id = telegram_settings()
+    if token is None or chat_id is None:
         return False
-    if not topic_is_strong(topic):
-        logging.error("NTFY_TOPIC is too short or has invalid characters; refusing to use it "
-                      "(generate one with: echo tb-$(openssl rand -hex 16))")
+    if not credentials_valid(token, chat_id):
+        logging.error("TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is malformed; refusing to use them")
         return False
     return True
 
 
-def _auth_headers() -> Dict[str, str]:
-    token = ntfy_settings()[2]
-    return {"Authorization": f"Bearer {token}"} if token else {}
-
-
-def ntfy_publish(payload: Dict[str, Any]) -> Dict[str, Any]:
-    """POST one JSON message (payload must name its `topic`). Raises on failure."""
-    server, _, _ = ntfy_settings()
-    resp = requests.post(server, json=payload, headers=_auth_headers(), timeout=HTTP_TIMEOUT)
+def telegram_call(method: str, payload: Dict[str, Any]) -> Any:
+    """One Bot API call; returns its `result`. Raises on any failure, including
+    an HTTP 200 whose body is not `{"ok": true}`."""
+    token, _ = telegram_settings()
+    if not token:
+        raise RuntimeError("TELEGRAM_BOT_TOKEN is not set")
+    resp = requests.post(f"{TELEGRAM_API}/bot{token}/{method}", json=payload, timeout=HTTP_TIMEOUT)
     resp.raise_for_status()
-    return resp.json()
+    body = resp.json()
+    if not isinstance(body, dict) or body.get("ok") is not True:
+        description = body.get("description") if isinstance(body, dict) else body
+        raise RuntimeError(_sanitize(f"Telegram {method} failed: {description}"))
+    return body.get("result")
 
 
-def ntfy_poll(topic: str, since: int) -> List[Dict[str, Any]]:
-    """Every cached message on `topic` published at/after unix time `since`.
-
-    ntfy answers with newline-delimited JSON; a line that doesn't parse is
-    skipped rather than trusted. Raises on a transport failure.
-    """
-    server, _, _ = ntfy_settings()
-    resp = requests.get(
-        f"{server}/{topic}/json",
-        params={"poll": "1", "since": str(int(since))},
-        headers=_auth_headers(),
-        timeout=HTTP_TIMEOUT,
-    )
-    resp.raise_for_status()
-    messages = []
-    for line in resp.text.splitlines():
-        try:
-            item = json.loads(line)
-        except ValueError:
-            continue
-        if isinstance(item, dict) and item.get("event") == "message":
-            messages.append(item)
-    return messages
-
-
-def _send_ntfy(subject: str, message: str, config: Optional[dict] = None, priority: int = 3) -> None:
-    _, topic, _ = ntfy_settings()
-    if not topic:
-        raise RuntimeError("NTFY_TOPIC is not set")
-    ntfy_publish({
-        "topic": topic,
-        "title": _sanitize(subject)[:200],
-        "message": _sanitize(message or subject)[:MAX_MESSAGE_CHARS],
-        "priority": priority,
+def _send_telegram(subject: str, message: str, config: Optional[dict] = None) -> None:
+    _, chat_id = telegram_settings()
+    if not chat_id:
+        raise RuntimeError("TELEGRAM_CHAT_ID is not set")
+    text = f"{_sanitize(subject)[:200]}\n\n{_sanitize(message or '')}".strip()
+    telegram_call("sendMessage", {
+        "chat_id": chat_id,
+        "text": text[:MAX_MESSAGE_CHARS],
+        "disable_web_page_preview": True,
     })
 
 
@@ -139,22 +110,22 @@ def send_alert(subject: str, message: str, config: Optional[dict] = None) -> Non
         except Exception as e:  # noqa: BLE001
             logging.error(f"Web push failed: {_sanitize(str(e))}")
 
-    ntfy_config = config.get("ntfy", {})
-    if isinstance(ntfy_config, dict) and ntfy_config.get("enabled", False):
+    telegram_config = config.get("telegram", {})
+    if isinstance(telegram_config, dict) and telegram_config.get("enabled", False):
         try:
-            _send_ntfy(subject, message, ntfy_config)
+            _send_telegram(subject, message, telegram_config)
         except Exception as e:  # noqa: BLE001
-            logging.error(f"ntfy push failed: {_sanitize(str(e))}")
+            logging.error(f"Telegram push failed: {_sanitize(str(e))}")
 
 
-def _notify(subject: str, message: str, priority: int = 3) -> None:
-    """Every typed alert below lands here: ntfy if configured, else nothing."""
-    if not ntfy_configured():
+def _notify(subject: str, message: str) -> None:
+    """Every typed alert below lands here: Telegram if configured, else nothing."""
+    if not telegram_configured():
         return
     try:
-        _send_ntfy(subject, message, priority=priority)
+        _send_telegram(subject, message)
     except Exception as e:  # noqa: BLE001 - an alert must never break a cycle
-        logging.error(f"ntfy push failed: {_sanitize(str(e))}")
+        logging.error(f"Telegram push failed: {_sanitize(str(e))}")
 
 
 def _mode(is_live: bool) -> str:
@@ -184,7 +155,6 @@ def send_circuit_breaker_alert(is_live: bool, today_loss_pct: float, threshold_p
         f"[{_mode(is_live)}] Circuit breaker activat",
         f"Perdua realitzada d'avui {today_loss_pct:.2f}% (limit -{abs(threshold_pct):.2f}%). "
         "No s'obriran noves operacions fins dema (UTC).",
-        priority=4,
     )
 
 
@@ -193,7 +163,7 @@ def send_auto_close_alert(is_live: bool, symbol: str, reason: str, pnl: float) -
 
 
 def send_cycle_failure_alert(is_live: bool, summary: str) -> None:
-    _notify(f"[{_mode(is_live)}] Cicle fallit", summary, priority=4)
+    _notify(f"[{_mode(is_live)}] Cicle fallit", summary)
 
 
 def send_approval_outcome_alert(is_live: bool, symbol: str, action: str, outcome: str) -> None:
@@ -205,7 +175,7 @@ def send_screening_complete_alert(is_live: bool, symbols: List[str], error: Exce
 
 
 def send_screening_failure_alert(is_live: bool, reason: str) -> None:
-    _notify(f"[{_mode(is_live)}] Cribratge setmanal fallit", reason, priority=4)
+    _notify(f"[{_mode(is_live)}] Cribratge setmanal fallit", reason)
 
 
 def send_volume_wake_alert(symbol: str, price: float, trigger_reasons: List[str], wake_action: str) -> None:

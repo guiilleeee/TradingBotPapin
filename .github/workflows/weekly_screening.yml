@@ -40,10 +40,9 @@ jobs:
       - name: Run weekly screening
         env:
           FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
-          # Optional: alerts are a no-op with NTFY_TOPIC unset (notifications.py).
-          NTFY_SERVER: ${{ secrets.NTFY_SERVER }}
-          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
-          NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
+          # Optional: alerts are a no-op with these unset (notifications.py).
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python screening.py --output symbols.yaml
 
       - name: Commit symbols.yaml

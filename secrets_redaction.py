@@ -23,10 +23,6 @@ import re
 # holds.
 SECRET_ENV_VARS = (
     "TELEGRAM_BOT_TOKEN",
-    # The ntfy topic is a capability: whoever knows it can read proposals and
-    # answer approvals. Treated exactly like a key.
-    "NTFY_TOPIC",
-    "NTFY_TOKEN",
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_WORKSPACE_ID",
     "GEMINI_API_KEY",

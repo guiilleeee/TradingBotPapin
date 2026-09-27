@@ -39,27 +39,21 @@ min_confidence_simulation: 0.40
 # ---------------------------------------------------------------- approval mode
 # Human approval before every live, model-driven order (approval.py).
 #
-# Delivered as a phone push notification through ntfy (notifications.py).
+# Delivered as a Telegram message with inline buttons (notifications.py).
 #
 # To turn it on:
-#   1. Generate the topic name -- run exactly:   echo tb-$(openssl rand -hex 16)
-#      and copy the whole output (35 characters, e.g. tb-9f2c...). On the public
-#      ntfy.sh server the topic name is the password; the bot refuses any topic
-#      under 24 characters. Never reuse it anywhere else.
-#   2. Install the ntfy app (Android: Play Store / F-Droid; iOS: App Store) and
-#      subscribe to that topic.
-#   3. Set NTFY_TOPIC as a GitHub secret (and/or in the VPS .env -- see
-#      deploy/README.md). NTFY_SERVER / NTFY_TOKEN only for a self-hosted or
-#      access-protected server.
-#   4. Change the line below to `approval_mode: true` and push.
+#   1. Create a bot with @BotFather and set up TELEGRAM_BOT_TOKEN and
+#      TELEGRAM_CHAT_ID -- see "Telegram" in deploy/README.md.
+#   2. Set both as GitHub secrets (and/or in the VPS .env).
+#   3. Change the line below to `approval_mode: true` and push.
 #
-# Each proposed buy/sell then arrives as a push notification with Aprovar /
+# Each proposed buy/sell then arrives as a Telegram message with Aprovar /
 # Rebutjar buttons. Only Aprovar submits the order to Alpaca (after a fresh price
 # and position re-check); Rebutjar or no answer within approval_timeout_seconds
 # logs it as skipped. Stop-loss / take-profit auto-exits are never held for
-# approval. Simulation is never gated. If approval_mode is true but NTFY_TOPIC is
-# not set, or ntfy is unreachable, every live order is skipped -- it fails
-# closed, never open.
+# approval. Simulation is never gated. If approval_mode is true but the Telegram
+# variables are unset or malformed, or Telegram is unreachable, every live order
+# is skipped -- it fails closed, never open.
 approval_mode: true
 approval_timeout_seconds: 600
 
@@ -112,13 +106,13 @@ symbols:
   - {symbol: DOGE-USD, asset_class: crypto}
 
 # ----------------------------------------------------------------- notifications
-# ntfy phone push is the channel that actually delivers: alerts send whenever
-# NTFY_TOPIC is set in the environment. Web push is NOT implemented (the
-# dashboard is a static page with nowhere to store subscriptions); the bell icon
-# is UI only.
+# Telegram is the channel that actually delivers: alerts send whenever
+# TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are set in the environment. Web push is
+# NOT implemented (the dashboard is a static page with nowhere to store
+# subscriptions); the bell icon is UI only.
 notifications:
   web_push: false
-  ntfy: true
+  telegram: true
 
 # ------------------------------------------------------------------- wake trigger
 # Volume/price wake-up thresholds (volume_watch.py). Between scheduled cycles, a

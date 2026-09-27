@@ -15,6 +15,15 @@ REAL_DB = ROOT / "trading_bot.db"
 
 
 @pytest.fixture(autouse=True)
+def no_real_telegram(monkeypatch):
+    """The VPS runs pytest with its real .env loaded; without this, any cycle test
+    that fires an alert would message the real chat. Tests about Telegram set
+    their own fake credentials."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("TELEGRAM_CHAT_ID", raising=False)
+
+
+@pytest.fixture(autouse=True)
 def market_open_by_default(monkeypatch):
     """Pin NYSE to "open" unless a test says otherwise.
 

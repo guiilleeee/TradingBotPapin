@@ -1,36 +1,35 @@
-"""Human-in-the-loop trade approval via phone push notification (config: approval_mode).
+"""Human-in-the-loop trade approval via Telegram (config: approval_mode).
 
 When `approval_mode: true`, every live, model-driven order is held until you tap
-**Aprovar** or **Rebutjar** on a push notification. No answer within
+**Aprovar** or **Rebutjar** under a Telegram message. No answer within
 `approval_timeout_seconds` (default 600) means no trade.
 
-Transport: ntfy (see notifications.py). The round-trip, end to end:
+Transport: the Telegram Bot API (see notifications.py). The round-trip:
 
-  1. The bot publishes the proposal to NTFY_TOPIC with two action buttons. The
-     ntfy app on the phone shows it as a normal push notification (lock screen
-     included) with "Aprovar" / "Rebutjar" underneath.
-  2. Tapping a button makes the *phone* send an HTTP POST, body
-     "<request id>:approve" or "<request id>:reject", to the reply topic
-     NTFY_TOPIC + "-reply". The notification then clears itself.
-  3. Meanwhile the bot polls that reply topic every few seconds for a message
-     carrying this request's one-off id.
+  1. The bot sends the proposal to TELEGRAM_CHAT_ID with an inline keyboard of
+     two buttons, whose callback data is "<request id>:approve" / ":reject".
+  2. Tapping a button makes Telegram queue a `callback_query` update for the bot.
+  3. Meanwhile the bot polls `getUpdates` every few seconds for a callback that
+     carries this request's one-off id, from the configured chat.
 
 Nothing here needs an inbound endpoint on the bot's side, so it works the same
-from a GitHub Actions job and from a VPS timer.
+from a GitHub Actions job and from a VPS timer. It does need that nothing else
+consumes the bot's updates: a webhook on the bot makes getUpdates fail (409), and
+a second process polling at the same time can swallow a tap. Both end in a
+timeout -- no trade -- never in a wrong approval.
 
-Who can approve: whoever can publish to the reply topic *and* has seen this
-request's random id, which only ever appears in the notification itself. On the
-public ntfy.sh that means whoever knows NTFY_TOPIC -- treat it like a password
-(long and random), or use a server/topic protected with NTFY_TOKEN.
+Who can approve: a tap counts only if it comes from a message in
+TELEGRAM_CHAT_ID (and, for a private chat, from that same user) and carries this
+request's random id, which only ever appears in the proposal's own buttons.
 
 Fail-safe in every direction -- all of these resolve to "not approved":
-  * approval mode on but NTFY_TOPIC unset             -> "unavailable"
-  * the proposal can't be published (ntfy down, 4xx)  -> "unavailable"
-  * a poll fails (network, 5xx)                       -> keep polling to the deadline
-  * a malformed reply line, a reply for another id,
-    or any body other than exactly "<id>:approve"      -> ignored
-  * no valid tap by the deadline                      -> "timeout"
-  * an approve and a reject both seen for this id     -> "rejected"
+  * approval mode on but token / chat id unset or malformed -> "unavailable"
+  * the proposal can't be sent (Telegram down, 4xx, ok=false) -> "unavailable"
+  * a poll fails (network, 5xx, 409 webhook conflict)       -> keep polling to the deadline
+  * a malformed update, a tap for another id or chat, or
+    any callback data other than exactly "<id>:approve"     -> ignored
+  * no valid tap by the deadline                            -> "timeout"
+  * an approve and a reject both seen for this id           -> "rejected"
 There is no path where a failure here places an order.
 
 Deliberately NOT gated: the sweep's automatic stop-loss/take-profit exits
@@ -43,19 +42,18 @@ from __future__ import annotations
 import secrets
 import time
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Mapping, Optional
+from typing import Any, Callable, Dict, Mapping, Optional
 
 import notifications
 from secrets_redaction import sanitize
 
 DEFAULT_TIMEOUT_SECONDS = 600.0
 POLL_INTERVAL_SECONDS = 5.0
-# Allow for a little clock skew between this machine and the ntfy server when
-# asking for replies "since" the moment the request went out.
-SINCE_SKEW_SECONDS = 10
 
 APPROVE = "approve"
 REJECT = "reject"
+
+TelegramCall = Callable[[str, Dict[str, Any]], Any]
 
 
 @dataclass(frozen=True)
@@ -77,10 +75,6 @@ def approval_timeout_seconds(config: Mapping[str, Any]) -> float:
     except (TypeError, ValueError):
         return DEFAULT_TIMEOUT_SECONDS
     return value if value > 0 else DEFAULT_TIMEOUT_SECONDS
-
-
-def reply_topic(topic: str) -> str:
-    return f"{topic}-reply"
 
 
 def format_request(
@@ -106,37 +100,55 @@ def format_request(
     lines.append(reasoning or "(sense raonament)")
     lines.append("")
     lines.append(f"Sense resposta en {int(timeout_seconds // 60)} min = no s'executa.")
-    return sanitize("\n".join(lines))[: notifications.MAX_MESSAGE_CHARS]
+    return sanitize("\n".join(lines))
 
 
-def build_notification(
-    topic: str, server: str, token: Optional[str], request_id: str, title: str, message: str
-) -> Dict[str, Any]:
-    """The ntfy publish payload: a max-priority push with two HTTP action buttons."""
-    url = f"{server}/{reply_topic(topic)}"
-    headers = {"Authorization": f"Bearer {token}"} if token else {}
-
-    def button(label: str, verdict: str) -> Dict[str, Any]:
-        action: Dict[str, Any] = {
-            "action": "http",
-            "label": label,
-            "url": url,
-            "method": "POST",
-            "body": f"{request_id}:{verdict}",
-            "clear": True,
-        }
-        if headers:
-            action["headers"] = headers
-        return action
-
+def build_message(chat_id: str, request_id: str, title: str, message: str) -> Dict[str, Any]:
+    """The sendMessage payload: plain text plus two inline buttons."""
+    text = f"{title}\n\n{message}"[: notifications.MAX_MESSAGE_CHARS]
     return {
-        "topic": topic,
-        "title": title,
-        "message": message,
-        "priority": 5,
-        "tags": ["warning"],
-        "actions": [button("Aprovar", APPROVE), button("Rebutjar", REJECT)],
+        "chat_id": chat_id,
+        "text": text,
+        "disable_web_page_preview": True,
+        "reply_markup": {
+            "inline_keyboard": [[
+                {"text": "Aprovar", "callback_data": f"{request_id}:{APPROVE}"},
+                {"text": "Rebutjar", "callback_data": f"{request_id}:{REJECT}"},
+            ]]
+        },
     }
+
+
+def _verdict(update: Any, chat_id: str, request_id: str) -> Optional[str]:
+    """APPROVE / REJECT if `update` is a tap on this request from the right chat."""
+    if not isinstance(update, dict):
+        return None
+    query = update.get("callback_query")
+    if not isinstance(query, dict):
+        return None
+    message = query.get("message")
+    chat = message.get("chat") if isinstance(message, dict) else None
+    if not isinstance(chat, dict) or str(chat.get("id")) != chat_id:
+        return None
+    if not chat_id.startswith("-"):
+        sender = query.get("from")
+        if not isinstance(sender, dict) or str(sender.get("id")) != chat_id:
+            return None
+    data = query.get("data")
+    if data == f"{request_id}:{APPROVE}":
+        return APPROVE
+    if data == f"{request_id}:{REJECT}":
+        return REJECT
+    return None
+
+
+def _next_offset(updates: list, offset: Optional[int]) -> Optional[int]:
+    """Confirm everything seen so far, so the next poll only returns newer updates."""
+    for update in updates:
+        update_id = update.get("update_id") if isinstance(update, dict) else None
+        if isinstance(update_id, int) and not isinstance(update_id, bool):
+            offset = max(offset or 0, update_id + 1)
+    return offset
 
 
 def request_approval(
@@ -151,73 +163,91 @@ def request_approval(
     reasoning: str,
     equity: float,
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
-    publish: Optional[Callable[[Dict[str, Any]], Any]] = None,
-    poll: Optional[Callable[[str, int], List[Dict[str, Any]]]] = None,
+    call: Optional[TelegramCall] = None,
     clock: Callable[[], float] = time.monotonic,
-    wall_clock: Callable[[], float] = time.time,
     sleep: Callable[[float], None] = time.sleep,
 ) -> ApprovalDecision:
     """Send the proposal, then block until a matching tap or the deadline."""
-    publish = publish or notifications.ntfy_publish
-    poll = poll or notifications.ntfy_poll
-    server, topic, token = notifications.ntfy_settings()
-    if not topic:
-        return ApprovalDecision(
-            False, "unavailable", "approval_mode is on but NTFY_TOPIC is not set"
-        )
-    if not notifications.topic_is_strong(topic):
+    call = call or notifications.telegram_call
+    token, chat_id = notifications.telegram_settings()
+    if not token or not chat_id:
         return ApprovalDecision(
             False, "unavailable",
-            "NTFY_TOPIC is too short or has invalid characters -- anyone could guess it "
-            "and approve trades; generate one with: echo tb-$(openssl rand -hex 16)",
+            "approval_mode is on but TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID is not set",
+        )
+    if not notifications.credentials_valid(token, chat_id):
+        return ApprovalDecision(
+            False, "unavailable", "TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is malformed"
         )
 
     request_id = secrets.token_hex(8)
-    approve_body = f"{request_id}:{APPROVE}"
-    reject_body = f"{request_id}:{REJECT}"
     title = sanitize(f"APROVACIO: {action.upper()} {symbol}")
     message = format_request(
         symbol, action, size_pct, price, stop_loss, take_profit,
         confidence, reasoning, equity, timeout_seconds,
     )
 
-    since = int(wall_clock()) - SINCE_SKEW_SECONDS
     try:
-        publish(build_notification(topic, server, token, request_id, title, message))
+        sent = call("sendMessage", build_message(chat_id, request_id, title, message))
     except Exception as exc:  # noqa: BLE001
         return ApprovalDecision(
             False, "unavailable",
-            sanitize(f"could not publish the approval request: {type(exc).__name__}: {exc}"),
+            sanitize(f"could not send the approval request: {type(exc).__name__}: {exc}"),
         )
+    message_id = sent.get("message_id") if isinstance(sent, dict) else None
 
+    offset: Optional[int] = None
     deadline = clock() + float(timeout_seconds)
     while clock() < deadline:
+        payload: Dict[str, Any] = {"timeout": 0, "allowed_updates": ["callback_query"]}
+        if offset is not None:
+            payload["offset"] = offset
         try:
-            replies = poll(reply_topic(topic), since) or []
+            updates = call("getUpdates", payload)
         except Exception:  # noqa: BLE001 - transient; keep polling until the deadline
-            replies = []
+            updates = None
+        updates = updates if isinstance(updates, list) else []
+        offset = _next_offset(updates, offset)
 
-        bodies = {
-            str(r.get("message", "")).strip()
-            for r in replies
-            if isinstance(r, dict)
-        }
-        if reject_body in bodies:
-            _close_out(publish, topic, title, "REBUTJADA")
-            return ApprovalDecision(False, "rejected", "rejected from the phone")
-        if approve_body in bodies:
-            _close_out(publish, topic, title, "APROVADA")
-            return ApprovalDecision(True, "approved", "approved from the phone")
+        verdicts = set()
+        for update in updates:
+            verdict = _verdict(update, chat_id, request_id)
+            if verdict:
+                verdicts.add(verdict)
+                _answer(call, update["callback_query"].get("id"))
+        if REJECT in verdicts:
+            _close_out(call, chat_id, message_id, title, "REBUTJADA")
+            return ApprovalDecision(False, "rejected", "rejected from Telegram")
+        if APPROVE in verdicts:
+            _close_out(call, chat_id, message_id, title, "APROVADA")
+            return ApprovalDecision(True, "approved", "approved from Telegram")
 
         sleep(min(POLL_INTERVAL_SECONDS, max(deadline - clock(), 0.0)))
 
-    _close_out(publish, topic, title, "CADUCADA (no s'executa)")
+    _close_out(call, chat_id, message_id, title, "CADUCADA (no s'executa)")
     return ApprovalDecision(False, "timeout", f"no answer within {int(timeout_seconds)}s")
 
 
-def _close_out(publish: Callable[[Dict[str, Any]], Any], topic: str, title: str, verdict: str) -> None:
-    """A short follow-up push so the phone shows how the request ended. Best effort."""
+def _answer(call: TelegramCall, callback_query_id: Any) -> None:
+    """Stops the button's loading spinner. Best effort."""
+    if not callback_query_id:
+        return
     try:
-        publish({"topic": topic, "title": f"{title}: {verdict}", "message": verdict, "priority": 3})
+        call("answerCallbackQuery", {"callback_query_id": callback_query_id})
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _close_out(call: TelegramCall, chat_id: str, message_id: Any, title: str, verdict: str) -> None:
+    """Remove the buttons and post how the request ended. Best effort."""
+    if message_id is not None:
+        try:
+            call("editMessageReplyMarkup", {
+                "chat_id": chat_id, "message_id": message_id, "reply_markup": {"inline_keyboard": []},
+            })
+        except Exception:  # noqa: BLE001
+            pass
+    try:
+        call("sendMessage", {"chat_id": chat_id, "text": f"{title}: {verdict}"})
     except Exception:  # noqa: BLE001
         pass

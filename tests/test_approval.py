@@ -1,7 +1,7 @@
-"""Approval mode: the ntfy push approve/reject round-trip, and its gating of the cycle.
+"""Approval mode: the Telegram inline-button approve/reject round-trip, and its gating of the cycle.
 
-No test reaches ntfy: a FakeNtfy stands in for notifications.ntfy_publish /
-ntfy_poll, and a fake clock drives the timeout without any real waiting.
+No test reaches Telegram: a FakeTelegram stands in for notifications.telegram_call,
+and a fake clock drives the timeout without any real waiting.
 """
 
 import pytest
@@ -13,14 +13,14 @@ import notifications
 from models import ExistingPosition
 from tests.cycle_helpers import buy_signal, record_executions, settings, stub_market
 
-TOPIC = "tb-test-topic-0123456789abcdef"
+TOKEN = "123456789:" + "A" * 35
+CHAT = "555000111"
 
 
 @pytest.fixture
-def ntfy_env(monkeypatch):
-    monkeypatch.setenv("NTFY_TOPIC", TOPIC)
-    monkeypatch.delenv("NTFY_SERVER", raising=False)
-    monkeypatch.delenv("NTFY_TOKEN", raising=False)
+def tg_env(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", TOKEN)
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", CHAT)
 
 
 class FakeClock:
@@ -34,48 +34,68 @@ class FakeClock:
         self.now += max(seconds, 0.001)
 
 
-class FakeNtfy:
-    """Records publishes; `replies` are message bodies that appear on the reply
-    topic from the `reply_after_polls`-th poll on. A body "{id}" placeholder is
-    filled with the real request id once the request has been published."""
+def tap(data, chat=CHAT, sender=CHAT, update_id=100):
+    return {
+        "update_id": update_id,
+        "callback_query": {
+            "id": f"cq{update_id}",
+            "from": {"id": int(sender)},
+            "message": {"message_id": 42, "chat": {"id": int(chat)}},
+            "data": data,
+        },
+    }
 
-    def __init__(self, replies=(), reply_after_polls=1, fail_publish=False, fail_polls=0, raw=()):
-        self.replies = list(replies)
+
+class FakeTelegram:
+    """Records every Bot API call. `taps` are updates returned by getUpdates from
+    the `reply_after_polls`-th poll on; a "{id}" placeholder in their callback
+    data is filled with the real request id once the proposal has been sent."""
+
+    def __init__(self, taps=(), reply_after_polls=1, fail_send=False, fail_polls=0, raw=()):
+        self.taps = list(taps)
         self.raw = list(raw)
         self.reply_after_polls = reply_after_polls
-        self.fail_publish = fail_publish
+        self.fail_send = fail_send
         self.fail_polls = fail_polls
-        self.published = []
-        self.polls = []
+        self.calls = []
+
+    def of(self, method):
+        return [payload for m, payload in self.calls if m == method]
+
+    @property
+    def proposal(self):
+        return self.of("sendMessage")[0]
 
     @property
     def request_id(self):
-        body = self.published[0]["actions"][0]["body"]
-        return body.split(":")[0]
+        return self.proposal["reply_markup"]["inline_keyboard"][0][0]["callback_data"].split(":")[0]
 
-    def publish(self, payload):
-        if self.fail_publish:
-            raise RuntimeError("ntfy unreachable")
-        self.published.append(payload)
-        return {"id": "m1"}
-
-    def poll(self, topic, since):
-        self.polls.append((topic, since))
-        if self.fail_polls:
-            self.fail_polls -= 1
-            raise RuntimeError("poll failed")
-        if len(self.polls) < self.reply_after_polls:
-            return []
-        out = [{"event": "message", "message": b.replace("{id}", self.request_id)} for b in self.replies]
-        return self.raw + out
+    def __call__(self, method, payload):
+        self.calls.append((method, payload))
+        if method == "sendMessage":
+            if self.fail_send:
+                raise RuntimeError("telegram unreachable")
+            return {"message_id": 42}
+        if method == "getUpdates":
+            if self.fail_polls:
+                self.fail_polls -= 1
+                raise RuntimeError("poll failed")
+            if len(self.of("getUpdates")) < self.reply_after_polls:
+                return []
+            out = []
+            for t in self.taps:
+                t = {**t, "callback_query": {**t["callback_query"]}}
+                t["callback_query"]["data"] = str(t["callback_query"]["data"]).replace("{id}", self.request_id)
+                out.append(t)
+            return self.raw + out
+        return True
 
 
 def request(fake, clock, timeout=600):
     return approval.request_approval(
         symbol="AAPL", action="buy", size_pct=10.0, price=200.0, stop_loss=196.0,
         take_profit=212.0, confidence=0.8, reasoning="Tendencia alcista.", equity=5000.0,
-        timeout_seconds=timeout, publish=fake.publish, poll=fake.poll,
-        clock=clock, wall_clock=lambda: 1_700_000_000.0, sleep=clock.sleep,
+        timeout_seconds=timeout, call=fake, clock=clock, sleep=clock.sleep,
     )
 
 
@@ -93,164 +113,246 @@ def test_approval_mode_defaults_off():
     assert approval.approval_enabled({}) is False
 
 
-def test_shipped_config_has_approval_mode_off():
+def test_shipped_config_has_approval_mode_on():
     import yaml
 
     with open(main.DEFAULT_CONFIG_PATH, encoding="utf-8") as handle:
         config = yaml.safe_load(handle)
-    assert config["approval_mode"] is False
+    assert config["approval_mode"] is True
     assert approval.approval_timeout_seconds(config) == 600
 
 
-# ------------------------------------------------------------- the push itself
+# ------------------------------------------------------------- the message itself
 
 
-def test_proposal_is_a_max_priority_push_with_two_action_buttons(ntfy_env):
-    clock = FakeClock()
-    fake = FakeNtfy(replies=["{id}:approve"])
-    request(fake, clock)
-    push = fake.published[0]
+def test_proposal_is_a_plain_text_message_with_two_inline_buttons(tg_env):
+    fake = FakeTelegram(taps=[tap("{id}:approve")])
+    request(fake, FakeClock())
+    msg = fake.proposal
 
-    assert push["topic"] == TOPIC
-    assert push["priority"] == 5
-    assert "BUY AAPL" in push["title"]
-    approve, reject = push["actions"]
-    for button, label, verdict in ((approve, "Aprovar", "approve"), (reject, "Rebutjar", "reject")):
-        assert button["action"] == "http" and button["method"] == "POST"
-        assert button["label"] == label
-        assert button["url"] == f"https://ntfy.sh/{TOPIC}-reply"
-        assert button["body"] == f"{fake.request_id}:{verdict}"
-        assert button["clear"] is True
+    assert msg["chat_id"] == CHAT
+    assert "parse_mode" not in msg
+    assert "BUY AAPL" in msg["text"]
+    approve, reject = msg["reply_markup"]["inline_keyboard"][0]
+    assert approve == {"text": "Aprovar", "callback_data": f"{fake.request_id}:approve"}
+    assert reject == {"text": "Rebutjar", "callback_data": f"{fake.request_id}:reject"}
+    assert len(approve["callback_data"].encode()) <= 64  # Telegram's limit
     for fragment in ("200", "10.00%", "$500.00", "196", "212", "0.80", "Tendencia alcista."):
-        assert fragment in push["message"]
+        assert fragment in msg["text"]
 
 
-def test_buttons_carry_the_access_token_for_a_protected_server(ntfy_env, monkeypatch):
-    monkeypatch.setenv("NTFY_SERVER", "https://ntfy.example.org/")
-    monkeypatch.setenv("NTFY_TOKEN", "tk_testtoken")
-    clock = FakeClock()
-    fake = FakeNtfy(replies=["{id}:approve"])
-    request(fake, clock)
-    button = fake.published[0]["actions"][0]
-    assert button["url"] == f"https://ntfy.example.org/{TOPIC}-reply"
-    assert button["headers"] == {"Authorization": "Bearer tk_testtoken"}
-
-
-def test_each_request_gets_a_fresh_id(ntfy_env):
+def test_each_request_gets_a_fresh_id(tg_env):
     ids = set()
     for _ in range(3):
-        fake = FakeNtfy(replies=["{id}:approve"])
+        fake = FakeTelegram(taps=[tap("{id}:approve")])
         request(fake, FakeClock())
         ids.add(fake.request_id)
     assert len(ids) == 3
 
 
-def test_polling_reads_the_reply_topic_since_just_before_the_send(ntfy_env):
-    clock = FakeClock()
-    fake = FakeNtfy(replies=["{id}:approve"], reply_after_polls=3)
-    request(fake, clock)
-    assert all(topic == f"{TOPIC}-reply" for topic, _ in fake.polls)
-    assert all(since == 1_700_000_000 - approval.SINCE_SKEW_SECONDS for _, since in fake.polls)
+def test_polling_asks_only_for_button_taps_and_confirms_what_it_has_seen(tg_env):
+    fake = FakeTelegram(raw=[tap("stale:approve", update_id=7)], reply_after_polls=1)
+    request(fake, FakeClock(), timeout=15)
+    polls = fake.of("getUpdates")
+    assert all(p["allowed_updates"] == ["callback_query"] for p in polls)
+    assert "offset" not in polls[0]
+    assert all(p["offset"] == 8 for p in polls[1:])
 
 
 # ------------------------------------------------------------- outcomes
 
 
-def test_approve_tap_approves(ntfy_env):
-    clock = FakeClock()
-    fake = FakeNtfy(replies=["{id}:approve"], reply_after_polls=4)
-    decision = request(fake, clock)
+def test_approve_tap_approves(tg_env):
+    fake = FakeTelegram(taps=[tap("{id}:approve")], reply_after_polls=4)
+    decision = request(fake, FakeClock())
     assert decision.approved is True
     assert decision.outcome == "approved"
-    # Follow-up push so the phone shows how it ended.
-    assert "APROVADA" in fake.published[-1]["title"]
+    # Spinner stopped, buttons removed, and a follow-up shows how it ended.
+    assert fake.of("answerCallbackQuery") == [{"callback_query_id": "cq100"}]
+    assert fake.of("editMessageReplyMarkup")[0]["message_id"] == 42
+    assert "APROVADA" in fake.of("sendMessage")[-1]["text"]
 
 
-def test_reject_tap_rejects(ntfy_env):
-    decision = request(FakeNtfy(replies=["{id}:reject"]), FakeClock())
+def test_reject_tap_rejects(tg_env):
+    decision = request(FakeTelegram(taps=[tap("{id}:reject")]), FakeClock())
     assert decision.approved is False
     assert decision.outcome == "rejected"
 
 
-def test_approve_and_reject_both_seen_resolves_to_reject(ntfy_env):
-    decision = request(FakeNtfy(replies=["{id}:approve", "{id}:reject"]), FakeClock())
-    assert decision.outcome == "rejected"
+def test_approve_and_reject_both_seen_resolves_to_reject(tg_env):
+    fake = FakeTelegram(taps=[tap("{id}:approve", update_id=1), tap("{id}:reject", update_id=2)])
+    assert request(fake, FakeClock()).outcome == "rejected"
 
 
-def test_no_answer_times_out_after_the_configured_window(ntfy_env):
+def test_no_answer_times_out_after_the_configured_window(tg_env):
     clock = FakeClock()
-    fake = FakeNtfy()
+    fake = FakeTelegram()
     decision = request(fake, clock, timeout=600)
     assert decision.approved is False
     assert decision.outcome == "timeout"
     assert 600 <= clock.now <= 600 + approval.POLL_INTERVAL_SECONDS
-    assert "CADUCADA" in fake.published[-1]["title"]
+    assert "CADUCADA" in fake.of("sendMessage")[-1]["text"]
 
 
-@pytest.mark.parametrize("body", [
+@pytest.mark.parametrize("data", [
     "deadbeefdeadbeef:approve",      # another request's id
-    "{id}:APPROVE",                  # not the exact body
+    "{id}:APPROVE",                  # not the exact data
     "{id}:approve please",
     "approve",
     "{id}",
     "",
 ])
-def test_anything_but_this_requests_exact_approve_body_is_ignored(ntfy_env, body):
-    decision = request(FakeNtfy(replies=[body]), FakeClock(), timeout=60)
+def test_anything_but_this_requests_exact_approve_data_is_ignored(tg_env, data):
+    decision = request(FakeTelegram(taps=[tap(data)]), FakeClock(), timeout=60)
     assert decision.outcome == "timeout"
 
 
-def test_malformed_reply_entries_are_ignored(ntfy_env):
-    raw = [None, "garbage", {"event": "message"}, {"message": 12345}, {"event": "keepalive"}]
-    decision = request(FakeNtfy(raw=raw), FakeClock(), timeout=60)
+def test_a_tap_from_another_chat_is_ignored(tg_env):
+    fake = FakeTelegram(taps=[tap("{id}:approve", chat="999", sender="999")])
+    assert request(fake, FakeClock(), timeout=60).outcome == "timeout"
+
+
+def test_a_tap_from_another_user_in_a_private_chat_is_ignored(tg_env):
+    fake = FakeTelegram(taps=[tap("{id}:approve", sender="999")])
+    assert request(fake, FakeClock(), timeout=60).outcome == "timeout"
+
+
+def test_in_a_group_chat_any_member_can_answer(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", TOKEN)
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "-1001234567890")
+    fake = FakeTelegram(taps=[tap("{id}:approve", chat="-1001234567890", sender="999")])
+    assert request(fake, FakeClock()).approved is True
+
+
+def test_malformed_updates_are_ignored(tg_env):
+    raw = [
+        None, "garbage", {}, {"update_id": "x"}, {"callback_query": None},
+        {"callback_query": {"data": "x"}},
+        {"callback_query": {"message": {"chat": "nope"}, "data": "x"}},
+        {"update_id": True, "callback_query": {"message": {"chat": {"id": int(CHAT)}}, "from": {}, "data": 5}},
+    ]
+    decision = request(FakeTelegram(raw=raw), FakeClock(), timeout=60)
     assert decision.outcome == "timeout"
 
 
-def test_transient_poll_failures_keep_waiting(ntfy_env):
-    decision = request(FakeNtfy(replies=["{id}:approve"], fail_polls=3), FakeClock())
+def test_a_non_list_getupdates_result_is_ignored(tg_env):
+    class Weird(FakeTelegram):
+        def __call__(self, method, payload):
+            if method == "getUpdates":
+                self.calls.append((method, payload))
+                return {"not": "a list"}
+            return super().__call__(method, payload)
+
+    assert request(Weird(), FakeClock(), timeout=30).outcome == "timeout"
+
+
+def test_transient_poll_failures_keep_waiting(tg_env):
+    decision = request(FakeTelegram(taps=[tap("{id}:approve")], fail_polls=3), FakeClock())
     assert decision.approved is True
 
 
-def test_polls_failing_until_the_deadline_is_a_timeout(ntfy_env):
-    decision = request(FakeNtfy(replies=["{id}:approve"], fail_polls=10_000), FakeClock(), timeout=60)
+def test_polls_failing_until_the_deadline_is_a_timeout(tg_env):
+    fake = FakeTelegram(taps=[tap("{id}:approve")], fail_polls=10_000)
+    decision = request(fake, FakeClock(), timeout=60)
     assert decision.approved is False
     assert decision.outcome == "timeout"
 
 
-def test_unreachable_ntfy_is_not_an_approval(ntfy_env):
-    decision = request(FakeNtfy(fail_publish=True), FakeClock())
+def test_unreachable_telegram_is_not_an_approval(tg_env):
+    decision = request(FakeTelegram(fail_send=True), FakeClock())
     assert decision.approved is False
     assert decision.outcome == "unavailable"
 
 
-def test_missing_topic_is_not_an_approval(monkeypatch):
-    monkeypatch.delenv("NTFY_TOPIC", raising=False)
-    fake = FakeNtfy(replies=["{id}:approve"])
+def test_close_out_failures_do_not_change_the_decision(tg_env):
+    class Flaky(FakeTelegram):
+        def __call__(self, method, payload):
+            if method in ("answerCallbackQuery", "editMessageReplyMarkup") or (
+                method == "sendMessage" and self.of("sendMessage")
+            ):
+                self.calls.append((method, payload))
+                raise RuntimeError("down")
+            return super().__call__(method, payload)
+
+    assert request(Flaky(taps=[tap("{id}:approve")]), FakeClock()).approved is True
+
+
+@pytest.mark.parametrize("var", ["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"])
+def test_missing_credentials_are_not_an_approval(tg_env, monkeypatch, var):
+    monkeypatch.delenv(var, raising=False)
+    fake = FakeTelegram(taps=[tap("{id}:approve")])
     decision = request(fake, FakeClock())
     assert decision.approved is False
     assert decision.outcome == "unavailable"
-    assert fake.published == []
+    assert fake.calls == []
 
 
-def test_ntfy_poll_skips_lines_that_are_not_json(ntfy_env, monkeypatch):
-    class Resp:
-        text = '{"event":"message","message":"a:approve"}\nnot json\n{"event":"open"}\n'
+@pytest.mark.parametrize("token,chat", [
+    ("not-a-token", CHAT),
+    ("123:short", CHAT),
+    (TOKEN, "@mychannel"),
+    (TOKEN, "12 34"),
+])
+def test_malformed_credentials_are_refused_for_approval(monkeypatch, token, chat):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", token)
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", chat)
+    fake = FakeTelegram(taps=[tap("{id}:approve")])
+    decision = request(fake, FakeClock())
+    assert decision.outcome == "unavailable"
+    assert fake.calls == []
 
-        def raise_for_status(self):
-            pass
 
-    monkeypatch.setattr(notifications.requests, "get", lambda *a, **k: Resp())
-    assert notifications.ntfy_poll(f"{TOPIC}-reply", 0) == [{"event": "message", "message": "a:approve"}]
+# --------------------------------------------------------- telegram_call itself
 
 
-def test_ntfy_poll_raises_on_http_error(ntfy_env, monkeypatch):
-    class Resp:
-        def raise_for_status(self):
-            raise RuntimeError("502")
+class _Resp:
+    def __init__(self, body, status_error=None):
+        self._body = body
+        self._err = status_error
 
-    monkeypatch.setattr(notifications.requests, "get", lambda *a, **k: Resp())
+    def raise_for_status(self):
+        if self._err:
+            raise self._err
+
+    def json(self):
+        return self._body
+
+
+def test_telegram_call_posts_to_the_bot_api_and_returns_the_result(tg_env, monkeypatch):
+    seen = []
+
+    def fake_post(url, json=None, timeout=None):
+        seen.append((url, json))
+        return _Resp({"ok": True, "result": [{"update_id": 1}]})
+
+    monkeypatch.setattr(notifications.requests, "post", fake_post)
+    assert notifications.telegram_call("getUpdates", {"timeout": 0}) == [{"update_id": 1}]
+    assert seen == [(f"https://api.telegram.org/bot{TOKEN}/getUpdates", {"timeout": 0})]
+
+
+def test_telegram_call_raises_when_ok_is_not_true(tg_env, monkeypatch):
+    monkeypatch.setattr(
+        notifications.requests, "post",
+        lambda *a, **k: _Resp({"ok": False, "description": "Conflict: webhook is active"}),
+    )
+    with pytest.raises(RuntimeError, match="webhook"):
+        notifications.telegram_call("getUpdates", {})
+
+
+def test_telegram_call_raises_on_http_error(tg_env, monkeypatch):
+    monkeypatch.setattr(notifications.requests, "post", lambda *a, **k: _Resp({}, RuntimeError("502")))
     with pytest.raises(RuntimeError):
-        notifications.ntfy_poll(f"{TOPIC}-reply", 0)
+        notifications.telegram_call("getUpdates", {})
+
+
+def test_a_send_error_never_leaks_the_token_into_the_decision(tg_env):
+    class Leaky(FakeTelegram):
+        def __call__(self, method, payload):
+            raise RuntimeError(f"Max retries exceeded with url: /bot{TOKEN}/sendMessage")
+
+    decision = request(Leaky(), FakeClock())
+    assert decision.outcome == "unavailable"
+    assert TOKEN not in decision.detail
 
 # ------------------------------------------------------------ cycle gating
 
@@ -463,19 +565,3 @@ def test_a_cancelled_job_during_the_wait_places_no_order_and_writes_nothing(
     assert calls == []
     assert read_signals() == []
     assert tmp_logger.get_all_simulated_positions() == []
-
-
-@pytest.mark.parametrize("topic", ["tradingbot", "tb-short", "tb-0123456789abcdef-with space", "tb/0123456789abcdef0123456789", "x" * 65])
-def test_a_weak_or_invalid_topic_is_refused_for_approval(monkeypatch, topic):
-    monkeypatch.setenv("NTFY_TOPIC", topic)
-    fake = FakeNtfy(replies=["{id}:approve"])
-    decision = request(fake, FakeClock())
-    assert decision.approved is False
-    assert decision.outcome == "unavailable"
-    assert fake.published == []
-
-
-def test_the_documented_topic_recipe_is_strong():
-    import secrets
-
-    assert notifications.topic_is_strong("tb-" + secrets.token_hex(16))

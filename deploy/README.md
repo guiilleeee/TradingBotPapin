@@ -44,38 +44,46 @@ sudo -u tradingbot nano /opt/tradingbot/.env
 chmod 600 /opt/tradingbot/.env
 ```
 
-### 3b. Phone notifications (ntfy): generate the topic once, use it in three places
+### 3b. Telegram (alerts + approvals)
 
-The topic name is the password on the public ntfy.sh server. Anyone who knows it
-can read your trade proposals and approve them. Generate it once, on any machine
-with `openssl`:
+1. In Telegram, open **@BotFather**, send `/newbot`, and follow the prompts. It
+   replies with the bot token (`123456789:AA...`). That token controls the bot:
+   whoever has it can read and answer your approval requests. Never commit it,
+   paste it into chats, or post it anywhere.
+2. Open a chat with your new bot and send it any message (a bot can't message
+   you first).
+3. Get your chat id from the server:
 
-```bash
-echo tb-$(openssl rand -hex 16)
-# -> tb-9f2c4e...   (35 characters: "tb-" + 32 hex). Copy the WHOLE line.
-```
+   ```bash
+   . /opt/tradingbot/.env
+   curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates" | python3 -m json.tool
+   # -> "chat": {"id": 123456789, ...}   that number is TELEGRAM_CHAT_ID
+   ```
 
-Paste that exact value into all three places:
+Put both values in two places:
 
-1. **VPS:** `NTFY_TOPIC=` in `/opt/tradingbot/.env`
-2. **GitHub:** repo → Settings → Secrets and variables → Actions → `NTFY_TOPIC`
-   (used by manual Actions runs)
-3. **Phone:** install the ntfy app (Android: Play Store or F-Droid, iOS: App Store),
-   tap **+**, and subscribe to the topic on server `https://ntfy.sh`.
+1. **VPS:** `TELEGRAM_BOT_TOKEN=` and `TELEGRAM_CHAT_ID=` in `/opt/tradingbot/.env`
+2. **GitHub:** repo → Settings → Secrets and variables → Actions →
+   `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` (used by manual Actions runs)
 
-Don't share it, post it, or reuse it for anything else. The bot refuses any topic
-under 24 characters or with characters other than letters, digits, `-` and `_`.
-If it ever leaks, generate a new one and update all three places.
+Only taps from that chat count as approvals. If the token ever leaks, send
+`/revoke` to @BotFather and update both places with the new token.
+
+The bot reads button taps with `getUpdates`, so the bot must **not** have a
+webhook set, and nothing else may poll it. Either problem only makes approvals
+time out (no trade), never approve by mistake. To clear a webhook:
+`curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook"`.
 
 Test it from the server before you turn on `approval_mode`:
 
 ```bash
 . /opt/tradingbot/.env
-curl -H "Title: TradingBot test" \
-     -H "Actions: http, Aprovar, https://ntfy.sh/${NTFY_TOPIC}-reply, method=POST, body=test:approve, clear=true" \
-     -d "Prova de notificacio" "https://ntfy.sh/${NTFY_TOPIC}"
-# The phone should show the push with an "Aprovar" button. Tap it, then:
-curl -s "https://ntfy.sh/${NTFY_TOPIC}-reply/json?poll=1&since=5m"   # shows test:approve
+curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+     -H "Content-Type: application/json" \
+     -d "{\"chat_id\": \"${TELEGRAM_CHAT_ID}\", \"text\": \"Prova\",
+          \"reply_markup\": {\"inline_keyboard\": [[{\"text\": \"Aprovar\", \"callback_data\": \"test:approve\"}]]}}"
+# The phone should show the message with an "Aprovar" button. Tap it, then:
+curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates" | grep -o '"data":"test:approve"'
 ```
 
 ### 4. Let the server push (only if `PUBLISH=1`)
@@ -170,7 +178,7 @@ running.
 
 ## Approval mode on the VPS
 
-It works the same as on Actions: an ntfy push notification with Aprovar / Rebutjar
+It works the same as on Actions: a Telegram message with Aprovar / Rebutjar
 buttons, and the job waits up to `approval_timeout_seconds` per proposed trade.
 `TimeoutStartSec=2h` in the unit leaves room for several approvals in one cycle.
 See `approval_mode` in `config.yaml`.
