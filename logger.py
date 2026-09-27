@@ -325,6 +325,31 @@ class BotLogger:
 
         return None
 
+    def get_position_opened_at(self, symbol: str) -> Optional[str]:
+        """When the currently open position in `symbol` was opened, or None.
+
+        The ledger's opened_at when the bot manages the exit; otherwise the most
+        recent buy that actually executed (at most one open buy per symbol, see
+        get_last_buy_price), which covers live bracket entries.
+        """
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT opened_at FROM simulated_positions WHERE symbol = ?", (symbol,)
+            ).fetchone()
+            if row is not None and row["opened_at"]:
+                return str(row["opened_at"])
+            rows = conn.execute(
+                "SELECT timestamp, final_signal, execution_result FROM signals "
+                "WHERE symbol = ? ORDER BY id DESC LIMIT 200",
+                (symbol,),
+            ).fetchall()
+        for row in rows:
+            if _load(row["final_signal"]).get("action") != "buy":
+                continue
+            if _load(row["execution_result"]).get("status") in ("success", "dry_run"):
+                return str(row["timestamp"])
+        return None
+
     # ------------------------------------------------------ benchmark snapshots
 
     def record_benchmark_snapshot(

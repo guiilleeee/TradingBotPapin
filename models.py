@@ -61,6 +61,9 @@ class TechnicalIndicators(BaseModel):
     trend_slope: float
     sma_20_vs_50_pct: float
     price_vs_sma_20_pct: float
+    # Wilder's 14-day Average True Range, in price units. None when the bars
+    # carry no High/Low.
+    atr_14: Optional[float] = Field(default=None, ge=0)
 
 
 class ExistingPosition(BaseModel):
@@ -68,6 +71,9 @@ class ExistingPosition(BaseModel):
 
     qty: float
     avg_entry_price: float = Field(gt=0)
+    # Context for the model, filled in by main.py; None when unknown.
+    days_held: Optional[float] = None
+    unrealized_pnl_pct: Optional[float] = None
 
 
 class EntryRules(BaseModel):
@@ -78,6 +84,9 @@ class EntryRules(BaseModel):
 
     min_reward_risk_ratio: Optional[float] = None
     earnings_blackout_days: Optional[int] = None
+    # Stop-loss distance from price must lie within [min, max] x atr_14.
+    stop_atr_min: Optional[float] = None
+    stop_atr_max: Optional[float] = None
 
 
 class SignalInput(BaseModel):

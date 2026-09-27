@@ -280,6 +280,115 @@ def available_cash(bot_logger: BotLogger, is_live: bool, fallback_equity: float)
     return fallback_equity + bot_logger.get_all_time_realized_pnl() - open_cost
 
 
+TIME_EXIT_DEFAULTS: Dict[str, Any] = {"enabled": True, "max_holding_days": 10.0, "min_move_pct": 2.0}
+
+
+def time_exit_settings(config: Dict[str, Any]) -> Dict[str, Any]:
+    """`time_exit` merged over TIME_EXIT_DEFAULTS; a malformed value keeps its default."""
+    raw = (config or {}).get("time_exit") or {}
+    out = dict(TIME_EXIT_DEFAULTS)
+    if not isinstance(raw, dict):
+        return out
+    out["enabled"] = raw.get("enabled", True) is not False
+    for key in ("max_holding_days", "min_move_pct"):
+        try:
+            out[key] = max(float(raw.get(key, out[key])), 0.0)
+        except (TypeError, ValueError):
+            pass
+    return out
+
+
+def days_since(opened_at: Any, now: Optional[datetime] = None) -> Optional[float]:
+    opened = parse_utc(opened_at) if opened_at else None
+    if opened is None:
+        return None
+    return ((now or datetime.now(timezone.utc)) - opened).total_seconds() / 86400.0
+
+
+def time_exit_reason(
+    opened_at: Any, entry: float, price: float, settings: Dict[str, Any],
+    now: Optional[datetime] = None,
+) -> Optional[str]:
+    """The closing reason if a position has been held max_holding_days and has
+    moved less than min_move_pct either way; None otherwise (or if unknown).
+    A position going nowhere ties up cash and a slot a better setup could use."""
+    if not settings["enabled"] or entry <= 0 or settings["max_holding_days"] <= 0:
+        return None
+    held = days_since(opened_at, now)
+    if held is None or held < settings["max_holding_days"]:
+        return None
+    move_pct = (price / entry - 1.0) * 100.0
+    if abs(move_pct) >= settings["min_move_pct"]:
+        return None
+    return (
+        f"Sortida per temps: {held:.1f} dies oberta i el preu {price:.6g} s'ha mogut "
+        f"{move_pct:+.2f}% (menys de +/-{settings['min_move_pct']:g}%). "
+        "Posicio tancada automaticament."
+    )
+
+
+def sweep_stale_bracketed_positions(
+    bot_logger: BotLogger, config: Dict[str, Any], equity: float, skip: Set[str],
+) -> SweepResult:
+    """The time exit for live positions whose exits live at the broker.
+
+    sweep_open_positions only sees the bot-managed ledger. A whole-share bracket
+    entry is not in it, so this pass walks the broker's positions instead. The
+    open time comes from the logged buy; a position with none (bought outside
+    the bot) is never touched. execution's sell path cancels the bracket legs
+    first.
+    """
+    result = SweepResult()
+    settings = time_exit_settings(config)
+    if not settings["enabled"]:
+        return result
+    try:
+        positions = execution.fetch_all_live_positions()
+    except Exception as exc:  # noqa: BLE001
+        print(f"  [time-exit] live position list unavailable ({type(exc).__name__}: {exc})")
+        return result
+    ledger = {str(r["symbol"]) for r in bot_logger.get_all_simulated_positions()}
+
+    for symbol, position in sorted(positions.items()):
+        if symbol in skip or symbol in ledger:
+            continue
+        opened_at = bot_logger.get_position_opened_at(symbol)
+        if opened_at is None:
+            continue
+        try:
+            price = data_fetcher.latest_price(data_fetcher.fetch_ohlcv(symbol))
+        except Exception as exc:  # noqa: BLE001
+            print(f"  [time-exit] {symbol}: price unavailable ({exc})")
+            continue
+        reason = time_exit_reason(opened_at, position.avg_entry_price, price, settings)
+        if reason is None:
+            continue
+        exit_signal = TradeSignal(
+            symbol=symbol, action="sell", confidence=1.0, position_size_pct=0.0,
+            stop_loss_price=None, take_profit_price=None, reasoning=reason,
+            override_reason="automatic exit", raw_action="sell",
+        )
+        exec_result = execution.execute_trade(
+            signal=exit_signal, current_price=price, live_equity=equity, is_live=True,
+            existing_position=position,
+        )
+        if exec_result.status != "success":
+            print(f"  [time-exit] {symbol}: exit did not fill ({exec_result.message})")
+            continue
+        fill = float(exec_result.fill_price or price)
+        qty = float(exec_result.qty or position.qty)
+        pnl = (
+            float(exec_result.realized_pnl_usd) if exec_result.realized_pnl_usd is not None
+            else (fill - position.avg_entry_price) * qty
+        )
+        bot_logger.record_pnl(symbol, pnl)
+        result.closed_symbols.add(symbol)
+        result.closures.append(Closure(symbol=symbol, reason=reason, price=fill, qty=qty,
+                                       pnl=pnl, entry_price=position.avg_entry_price))
+        print(f"  [time-exit] {symbol}: closed at {fill:.6g}, P&L {pnl:+.2f} USD")
+    return result
+
+
 def sweep_open_positions(
     bot_logger: BotLogger,
     config: Dict[str, Any],
@@ -297,6 +406,7 @@ def sweep_open_positions(
     is known, so every row carries a real "Patrimoni total" value.
     """
     result = SweepResult()
+    time_settings = time_exit_settings(config)
 
     for row in bot_logger.get_all_simulated_positions():
         symbol = str(row["symbol"])
@@ -322,21 +432,26 @@ def sweep_open_positions(
         hit_stop = stop is not None and price <= float(stop)
         hit_take = take is not None and price >= float(take)
 
+        stale_reason = None
         if not (hit_stop or hit_take):
-            result.unrealized_pnl += (price - entry) * qty
-            result.market_values[symbol] = price * qty
-            continue
+            stale_reason = time_exit_reason(row.get("opened_at"), entry, price, time_settings)
+            if stale_reason is None:
+                result.unrealized_pnl += (price - entry) * qty
+                result.market_values[symbol] = price * qty
+                continue
 
         if hit_stop:
             reason = (
                 f"Stop-loss activat: el preu {price:.6g} ha creuat el nivell "
                 f"{float(stop):.6g}. Posicio tancada automaticament."
             )
-        else:
+        elif hit_take:
             reason = (
                 f"Take-profit assolit: el preu {price:.6g} ha superat l'objectiu "
                 f"{float(take):.6g}. Posicio tancada automaticament."
             )
+        else:
+            reason = stale_reason
 
         fill = price
         if is_live:
@@ -443,6 +558,9 @@ def _run_cycle_body(
         funding_threshold = float(config.get("funding_threshold_usd", 10.0))
         equity = _live_equity(bot_logger, fallback_equity, funding_threshold)
         sweep = sweep_open_positions(bot_logger, config, is_live, equity)
+        stale = sweep_stale_bracketed_positions(bot_logger, config, equity, sweep.closed_symbols)
+        sweep.closed_symbols |= stale.closed_symbols
+        sweep.closures += stale.closures
         if sweep.closures:
             equity = _live_equity(bot_logger, fallback_equity, funding_threshold)
     else:
@@ -704,6 +822,34 @@ def _funnel_symbols(
 
 
 DEFAULT_EARNINGS_BLACKOUT_DAYS = 2
+DEFAULT_STOP_ATR_BOUNDS = (1.0, 4.0)
+
+
+def _stop_atr_bounds(config: Dict[str, Any]) -> Tuple[float, float]:
+    """(min, max) stop distance in ATR multiples; 0 disables a bound."""
+    out = []
+    for key, default in zip(("min_stop_atr_multiple", "max_stop_atr_multiple"), DEFAULT_STOP_ATR_BOUNDS):
+        try:
+            out.append(max(float(config.get(key, default)), 0.0))
+        except (TypeError, ValueError):
+            out.append(default)
+    return out[0], out[1]
+
+
+def _with_position_context(
+    position: ExistingPosition, symbol: str, current_price: float, bot_logger: BotLogger
+) -> ExistingPosition:
+    """Add days held and unrealised P&L %, so the model can judge a position
+    that is going nowhere rather than only one that hit a level."""
+    try:
+        opened_at = bot_logger.get_position_opened_at(symbol)
+    except Exception:  # noqa: BLE001 - context only; never fails the symbol
+        opened_at = None
+    held = days_since(opened_at)
+    return position.model_copy(update={
+        "days_held": round(held, 2) if held is not None else None,
+        "unrealized_pnl_pct": round((current_price / position.avg_entry_price - 1.0) * 100.0, 3),
+    })
 
 
 def _earnings_blackout_days(config: Dict[str, Any]) -> int:
@@ -785,6 +931,9 @@ def _process_symbol(
     existing_position: Optional[ExistingPosition] = execution.fetch_existing_position(
         symbol=symbol, is_live=is_live, bot_logger=bot_logger
     )
+    if existing_position is not None:
+        existing_position = _with_position_context(existing_position, symbol, current_price, bot_logger)
+    stop_atr_min, stop_atr_max = _stop_atr_bounds(config)
 
     asset_class = symbol_config.asset_class(symbol, config)
     earnings_blackout_days = _earnings_blackout_days(config)
@@ -803,6 +952,8 @@ def _process_symbol(
         entry_rules=EntryRules(
             min_reward_risk_ratio=min_reward_risk_ratio,
             earnings_blackout_days=earnings_blackout_days,
+            stop_atr_min=stop_atr_min or None,
+            stop_atr_max=stop_atr_max or None,
         ),
     )
 
@@ -854,6 +1005,9 @@ def _process_symbol(
         min_reward_risk_ratio=min_reward_risk_ratio,
         days_to_earnings=signal_input.days_to_earnings,
         earnings_blackout_days=earnings_blackout_days,
+        atr=indicators.atr_14,
+        stop_atr_min=stop_atr_min,
+        stop_atr_max=stop_atr_max,
     )
 
     if final.action == "buy" and existing_position is None and book.exposures is not None:

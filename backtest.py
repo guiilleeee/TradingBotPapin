@@ -292,11 +292,22 @@ def _stop_take_fill(day_open: float, level: float, is_stop: bool) -> float:
     return day_open if day_open > level else level
 
 
+def _time_exit_due(pos: "OpenPosition", day: Any, price: float,
+                   settings: Optional[Dict[str, Any]]) -> bool:
+    if not settings or not settings.get("enabled") or pos.entry_price <= 0:
+        return False
+    held_days = (pd.Timestamp(day) - pd.Timestamp(pos.opened_day)).days
+    if held_days < float(settings["max_holding_days"]):
+        return False
+    return abs(price / pos.entry_price - 1.0) * 100.0 < float(settings["min_move_pct"])
+
+
 def sweep_positions_for_day(
     state: BacktestState,
     full_frames: Dict[str, pd.DataFrame],
     day: Any,
     logger: "BacktestLogger",
+    time_exit: Optional[Dict[str, Any]] = None,
 ) -> set:
     """Close any open position whose stop or take-profit was touched today.
 
@@ -304,6 +315,10 @@ def sweep_positions_for_day(
     any fresh decision, and a symbol closed here is skipped for a new decision
     the same day (mirrored in run_backtest's main loop) -- exactly the
     `auto_closed_symbols` pattern the live cycle already uses.
+
+    `time_exit` (main.time_exit_settings) adds the live sweep's time exit: a
+    position held max_holding_days that is within +/-min_move_pct of its entry
+    at today's open is closed at that open.
     """
     closed_today: set = set()
 
@@ -317,17 +332,22 @@ def sweep_positions_for_day(
 
         hit_stop = pos.stop_loss_price is not None and low <= pos.stop_loss_price
         hit_take = pos.take_profit_price is not None and high >= pos.take_profit_price
+        stale = False
         if not (hit_stop or hit_take):
-            continue
+            stale = _time_exit_due(pos, day, day_open, time_exit)
+            if not stale:
+                continue
 
         # If a single bar's range crosses both levels, assume the worse
         # outcome -- same rule, same rationale, as main.py's live sweep.
         if hit_stop:
             level, is_stop, reason = pos.stop_loss_price, True, "Stop-loss"
-        else:
+        elif hit_take:
             level, is_stop, reason = pos.take_profit_price, False, "Take-profit"
+        else:
+            level, is_stop, reason = day_open, False, "Time-exit"
 
-        fill = _stop_take_fill(day_open, level, is_stop)
+        fill = day_open if stale else _stop_take_fill(day_open, level, is_stop)
         pnl = (fill - pos.entry_price) * pos.qty
 
         state.record_realized(pnl)
@@ -546,6 +566,8 @@ def run_symbol_for_day(
     max_risk_pct: float,
     max_absolute_position_pct: float,
     min_reward_risk_ratio: float = risk_manager.DEFAULT_MIN_REWARD_RISK_RATIO,
+    stop_atr_min: float = 0.0,
+    stop_atr_max: float = 0.0,
 ) -> None:
     """One symbol, one simulated day: decide, size, and (maybe) fill.
 
@@ -580,7 +602,9 @@ def run_symbol_for_day(
         existing_position=existing_position,
         technical_indicators=indicators,
         recent_headlines=[], # limitation 1 -- see module docstring
-        entry_rules=EntryRules(min_reward_risk_ratio=min_reward_risk_ratio),
+        entry_rules=EntryRules(min_reward_risk_ratio=min_reward_risk_ratio,
+                               stop_atr_min=stop_atr_min or None,
+                               stop_atr_max=stop_atr_max or None),
         )
 
     today_loss_pct = state.today_realized_loss_pct()
@@ -617,6 +641,9 @@ def run_symbol_for_day(
             max_absolute_position_pct=max_absolute_position_pct,
             min_confidence=mode_settings.min_confidence,
             min_reward_risk_ratio=min_reward_risk_ratio,
+            atr=indicators.atr_14,
+            stop_atr_min=stop_atr_min,
+            stop_atr_max=stop_atr_max,
         )
 
     if day not in full_frame.index:
@@ -771,6 +798,8 @@ def run_backtest(
     min_reward_risk_ratio = float(
         config.get("min_reward_risk_ratio", risk_manager.DEFAULT_MIN_REWARD_RISK_RATIO)
     )
+    stop_atr_min, stop_atr_max = main_module._stop_atr_bounds(config)
+    time_exit = main_module.time_exit_settings(config)
 
     print(f"=== Backtest | {start} .. {end} | provider={provider} model={model} ===")
     for item in LIMITATIONS:
@@ -793,7 +822,7 @@ def run_backtest(
 
     for day in all_days:
         state.note_day(day)
-        closed_today = sweep_positions_for_day(state, full_frames, day, logger)
+        closed_today = sweep_positions_for_day(state, full_frames, day, logger, time_exit)
 
         for symbol, asset_class in symbols_with_class:
             if symbol in closed_today:
@@ -807,6 +836,7 @@ def run_backtest(
                 cost=cost, logger=logger, circuit_breaker_loss_pct=circuit_breaker_loss_pct,
                 max_risk_pct=max_risk_pct, max_absolute_position_pct=max_absolute_position_pct,
                 min_reward_risk_ratio=min_reward_risk_ratio,
+                stop_atr_min=stop_atr_min, stop_atr_max=stop_atr_max,
             )
 
         equity_today = mark_to_market_equity(state, full_frames, day)

@@ -32,6 +32,7 @@ from models import TechnicalIndicators
 DEFAULT_PERIOD = "120d"
 
 RSI_PERIOD = 14
+ATR_PERIOD = 14
 SMA_SHORT = 20
 SMA_LONG = 50
 
@@ -113,6 +114,28 @@ def _wilder_rsi(close: pd.Series, period: int = RSI_PERIOD) -> float:
     return 100.0 - (100.0 / (1.0 + rs))
 
 
+def _wilder_atr(df: pd.DataFrame, period: int = ATR_PERIOD) -> Optional[float]:
+    """Average True Range with Wilder's smoothing, or None without High/Low data.
+
+    Same seeding as _wilder_rsi: a simple mean of the first `period` true ranges,
+    then smoothed forward.
+    """
+    if not {"High", "Low", "Close"} <= set(df.columns):
+        return None
+    high = df["High"].astype(float)
+    low = df["Low"].astype(float)
+    prev_close = df["Close"].astype(float).shift(1)
+    true_range = pd.concat(
+        [high - low, (high - prev_close).abs(), (low - prev_close).abs()], axis=1
+    ).max(axis=1).iloc[1:].dropna()
+    if len(true_range) < period:
+        return None
+    atr = float(true_range.iloc[:period].mean())
+    for value in true_range.iloc[period:]:
+        atr = (atr * (period - 1) + float(value)) / period
+    return atr if np.isfinite(atr) else None
+
+
 def compute_indicators(
     df: pd.DataFrame,
     rsi_period: int = RSI_PERIOD,
@@ -173,6 +196,7 @@ def compute_indicators(
         trend_slope=trend_slope,
         sma_20_vs_50_pct=sma_20_vs_50_pct,
         price_vs_sma_20_pct=price_vs_sma_20_pct,
+        atr_14=_wilder_atr(df),
     )
 
 

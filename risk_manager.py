@@ -41,6 +41,9 @@ def validate(
     min_reward_risk_ratio: float = DEFAULT_MIN_REWARD_RISK_RATIO,
     days_to_earnings: Optional[int] = None,
     earnings_blackout_days: int = 0,
+    atr: Optional[float] = None,
+    stop_atr_min: float = 0.0,
+    stop_atr_max: float = 0.0,
 ) -> TradeSignal:
     """Apply the risk rules in order and return the signal execution may act on.
 
@@ -62,6 +65,11 @@ def validate(
         earnings_blackout_days: a buy with days_to_earnings in [0, N] is held;
             a bracket held through an earnings gap can lose far past its stop.
             0 disables the rule.
+        atr: the symbol's ATR-14 in price units, or None when unknown.
+        stop_atr_min / stop_atr_max: a buy's stop distance must lie within
+            [min, max] x atr. Tighter is inside normal daily noise; wider sizes
+            the position down to almost nothing. 0 disables either bound, and
+            an unknown ATR skips the rule.
     """
     reasons: List[str] = []
 
@@ -163,6 +171,23 @@ def validate(
                             f"reward:risk {reward_risk_ratio:.2f} is below the "
                             f"{min_reward_risk_ratio:.2f} minimum (take-profit {take:.6g}, "
                             f"stop-loss {stop:.6g}, price {current_price:.6g})"
+                        )
+                        action = "hold"
+
+                # 4c. Stop distance in ATR units. Buy only, for the same
+                # reason as 4b: a sell's levels manage nothing.
+                if action == "buy" and atr is not None and atr > 0:
+                    atr_multiple = abs(current_price - stop) / atr
+                    if stop_atr_min > 0 and atr_multiple < stop_atr_min:
+                        reasons.append(
+                            f"stop-loss {stop:.6g} is {atr_multiple:.2f}x ATR from price, under "
+                            f"the {stop_atr_min:.2f}x minimum (inside normal daily noise)"
+                        )
+                        action = "hold"
+                    elif stop_atr_max > 0 and atr_multiple > stop_atr_max:
+                        reasons.append(
+                            f"stop-loss {stop:.6g} is {atr_multiple:.2f}x ATR from price, over "
+                            f"the {stop_atr_max:.2f}x maximum"
                         )
                         action = "hold"
 

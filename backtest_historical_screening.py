@@ -410,10 +410,12 @@ def run_backtest_with_rotating_screening(
     state = backtest.BacktestState(equity=starting_equity)
     logger = backtest.BacktestLogger(db_path)
     cost = backtest.CostTracker(model)
+    stop_atr_min, stop_atr_max = main_module._stop_atr_bounds(config)
+    time_exit = main_module.time_exit_settings(config)
 
     for day in all_days:
         state.note_day(day)
-        closed_today = backtest.sweep_positions_for_day(state, full_frames, day, logger)
+        closed_today = backtest.sweep_positions_for_day(state, full_frames, day, logger, time_exit)
 
         active_today: List[Tuple[str, AssetClass]] = (
             [(s, "equity") for s in schedule.active_equities(day)]
@@ -432,6 +434,7 @@ def run_backtest_with_rotating_screening(
                 cost=cost, logger=logger, circuit_breaker_loss_pct=circuit_breaker_loss_pct,
                 max_risk_pct=max_risk_pct, max_absolute_position_pct=max_absolute_position_pct,
                 min_reward_risk_ratio=min_reward_risk_ratio,
+                stop_atr_min=stop_atr_min, stop_atr_max=stop_atr_max,
             )
 
         equity_today = backtest.mark_to_market_equity(state, full_frames, day)

@@ -47,6 +47,7 @@ from typing import Any, Dict, List, Optional
 CLOSE_REASON_STOP_LOSS = "stop_loss"
 CLOSE_REASON_TAKE_PROFIT = "take_profit"
 CLOSE_REASON_MODEL_SELL = "model_sell"
+CLOSE_REASON_TIME_EXIT = "time_exit"
 CLOSE_REASON_UNKNOWN_AUTO = "auto_close_unknown"
 
 # 0.05-wide confidence buckets from 0.50 up -- both live and simulation
@@ -80,6 +81,8 @@ def categorize_close(row: sqlite3.Row) -> str:
         return CLOSE_REASON_STOP_LOSS
     if reasoning.startswith("Take-profit"):
         return CLOSE_REASON_TAKE_PROFIT
+    if reasoning.startswith("Time-exit"):
+        return CLOSE_REASON_TIME_EXIT
     return CLOSE_REASON_UNKNOWN_AUTO
 
 
