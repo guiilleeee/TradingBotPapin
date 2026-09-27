@@ -1772,7 +1772,10 @@ async function setupPush() {
     return;
   }
 
-  const reg = await navigator.serviceWorker.register('sw.js');
+  await navigator.serviceWorker.register('sw.js');
+  // Subscribe through the *active* worker: right after a first install the
+  // registration can still be installing, and subscribe() would fail.
+  const reg = await navigator.serviceWorker.ready;
   const setActive = on => {
     pushBtn.classList.toggle('active', on);
     pushBtn.title = on ? 'Notificacions activades (clica per desactivar)' : 'Activar notificacions';
@@ -1796,12 +1799,10 @@ async function setupPush() {
         return;
       }
       if (await Notification.requestPermission() !== 'granted') {
-        alert('Cal permetre les notificacions al navegador per activar-les.');
+        alert(PUSH_MESSAGES.blocked);
         return;
       }
-      const sub = await reg.pushManager.subscribe({
-        userVisibleOnly: true, applicationServerKey: b64ToBytes(config.vapid_public_key),
-      });
+      const sub = await subscribeWithRetry(reg.pushManager, b64ToBytes(config.vapid_public_key));
       const res = await githubDispatch('push_subscribe', await encryptSubscription(sub, config.subscription_public_key));
       if (!res || !res.ok) {
         await sub.unsubscribe();
@@ -1811,11 +1812,63 @@ async function setupPush() {
       setActive(true);
       alert('Notificacions activades. Rebras els mateixos avisos que a Telegram quan GitHub desi la subscripcio (1-2 minuts).');
     } catch (e) {
-      alert('Error: ' + e.message);
+      alert(pushErrorMessage(e));
     } finally {
       busy = false;
     }
   });
+}
+
+const PUSH_MESSAGES = {
+  pushService:
+    "No s'ha pogut registrar aquest dispositiu al servei de notificacions del navegador " +
+    "(a Android, el de Google Play Services). Normalment es cosa del telefon, no de la web. Prova:\n\n" +
+    "- Actualitza Google Play Services i Chrome (Play Store).\n" +
+    "- Ajustaments > Aplicacions > Chrome, i tambe Google Play Services: permet les dades en segon pla " +
+    "i posa la bateria a \"Sense restriccions\" (i treu-les de les aplicacions en repos).\n" +
+    "- Desactiva el mode lleuger / estalvi de dades de Chrome.\n" +
+    "- Torna-ho a provar amb dades mobils en lloc de Wi-Fi.\n\n" +
+    "Si continua fallant, Firefox per a Android funciona sense Google Play Services.",
+  blocked:
+    "Les notificacions estan bloquejades per a aquesta pagina. Activa-les a la configuracio del " +
+    "navegador (icona del cadenat al costat de l'adreca > Permisos > Notificacions) i torna-ho a provar.",
+  offline: "No hi ha connexio a internet. Torna-ho a provar quan en tinguis.",
+};
+
+// Human-readable reason for a failed subscribe/unsubscribe (DOMException name,
+// or a TypeError from a failed fetch).
+function pushErrorMessage(e) {
+  const name = e && e.name;
+  if (name === 'AbortError') return PUSH_MESSAGES.pushService;
+  if (name === 'NotAllowedError') return PUSH_MESSAGES.blocked;
+  if (name === 'NetworkError' || (name === 'TypeError' && typeof navigator !== 'undefined' && !navigator.onLine)) {
+    return PUSH_MESSAGES.offline;
+  }
+  return 'Error: ' + ((e && e.message) || String(e));
+}
+
+// pushManager.subscribe with the two recoveries worth automating:
+//  - AbortError ("Registration failed - push service error"): the browser's push
+//    service (FCM on Android) refused the registration. Often transient -> one
+//    retry after a short pause.
+//  - InvalidStateError: this device holds a subscription made with an older key
+//    (web_push.py setup was run again) -> drop it and subscribe afresh.
+async function subscribeWithRetry(pushManager, applicationServerKey, waitMs) {
+  const opts = { userVisibleOnly: true, applicationServerKey };
+  try {
+    return await pushManager.subscribe(opts);
+  } catch (e) {
+    if (e && e.name === 'InvalidStateError') {
+      const old = await pushManager.getSubscription();
+      if (old) await old.unsubscribe();
+      return await pushManager.subscribe(opts);
+    }
+    if (e && e.name === 'AbortError') {
+      await new Promise(r => setTimeout(r, waitMs === undefined ? 2000 : waitMs));
+      return await pushManager.subscribe(opts);
+    }
+    throw e;
+  }
 }
 setupPush().catch(() => { pushBtn.style.display = 'none'; });
 
