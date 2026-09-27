@@ -13,7 +13,7 @@ from typing import List, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 Action = Literal["buy", "sell", "hold"]
-AssetClass = Literal["equity"]
+AssetClass = Literal["equity", "crypto"]
 ExecutionStatus = Literal["success", "skipped", "error", "dry_run"]
 
 

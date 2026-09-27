@@ -1,4 +1,4 @@
-"""Order routing for Alpaca (US equities only).
+"""Order routing for Alpaca: US equities, plus a fixed set of spot crypto pairs.
 
 Three rules run through everything in this module:
 
@@ -7,7 +7,13 @@ Three rules run through everything in this module:
     guards, then returns a dry_run result.
   * The system is spot-only. It opens longs and closes them. It never shorts, so a
     sell with nothing held is a skip, not an order.
-  * No leverage, no margin, no options, ever. Only plain equity orders are placed.
+  * No leverage, no margin, no options, ever. Only plain equity orders and plain
+    spot crypto orders are placed.
+
+Crypto differs from equities in exactly three ways here, all in `_execute_crypto`:
+it trades 24/7 (no market-hours gate), Alpaca accepts no bracket legs on it (so
+every crypto entry is a bot-managed exit swept by main.py), and its symbols are
+translated from the project's "BTC-USD" form to Alpaca's "BTC/USD" / "BTCUSD".
 """
 
 from __future__ import annotations
@@ -19,6 +25,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import requests
 
+import symbol_config
 from models import ExecutionResult, ExistingPosition, TradeSignal
 from secrets_redaction import sanitize
 
@@ -108,12 +115,44 @@ def fetch_existing_position(
     symbol: str,
     is_live: bool,
     bot_logger: Any,
+    asset_class: Optional[str] = None,
 ) -> Optional[ExistingPosition]:
-    """Current holding for `symbol`, from the broker in live and the ledger in sim."""
+    """Current holding for `symbol`, from the broker in live and the ledger in sim.
+
+    `asset_class` is accepted for callers that already know it (position_metrics.py
+    passes it); the broker symbol is derived from `symbol` itself either way. An
+    earlier signature without this parameter made every live position lookup from
+    position_metrics.py raise TypeError, silently emptying positions.json in live.
+    """
     if not is_live:
         # No broker call at all. The simulated ledger is the whole truth here.
         return bot_logger.get_simulated_position(symbol)
     return _fetch_alpaca_position(symbol)
+
+
+def fetch_all_live_positions() -> Dict[str, ExistingPosition]:
+    """Every open Alpaca position, keyed by this project's symbol form ("BTC-USD").
+
+    Raises on a broker failure, for the same reason _fetch_alpaca_position does:
+    an empty dict means "flat everywhere", and callers act on that.
+    """
+    resp = requests.get(
+        f"{ALPACA_BASE_URL}/v2/positions",
+        headers=_alpaca_headers(),
+        timeout=HTTP_TIMEOUT,
+    )
+    resp.raise_for_status()
+    out: Dict[str, ExistingPosition] = {}
+    for row in resp.json() or []:
+        qty = float(row.get("qty", 0.0) or 0.0)
+        avg = float(row.get("avg_entry_price", 0.0) or 0.0)
+        if qty <= 0 or avg <= 0:
+            continue
+        symbol = symbol_config.from_alpaca_symbol(
+            str(row.get("symbol", "")), str(row.get("asset_class", ""))
+        )
+        out[symbol] = ExistingPosition(qty=qty, avg_entry_price=avg)
+    return out
 
 
 def _fetch_alpaca_position(symbol: str) -> Optional[ExistingPosition]:
@@ -125,7 +164,7 @@ def _fetch_alpaca_position(symbol: str) -> Optional[ExistingPosition]:
     position it already has. The caller skips the symbol instead.
     """
     resp = requests.get(
-        f"{ALPACA_BASE_URL}/v2/positions/{symbol}",
+        f"{ALPACA_BASE_URL}/v2/positions/{symbol_config.alpaca_position_symbol(symbol)}",
         headers=_alpaca_headers(),
         timeout=HTTP_TIMEOUT,
     )
@@ -211,11 +250,6 @@ def _execute_equity(
 ) -> ExecutionResult:
     key, secret = _alpaca_credentials()
 
-    # Explicit Margin/Options/Crypto Guard:
-    if '-' in signal.symbol:
-        return ExecutionResult(
-            status="skipped", message=f"{signal.symbol}: crypto/perpetual trading is disabled. Equities only."
-        )
     if signal.action not in ("buy", "sell", "hold"):
         return ExecutionResult(
             status="skipped", message=f"{signal.symbol}: unsupported action {signal.action}. Only spot buys and sells are allowed."
@@ -330,6 +364,89 @@ def _execute_equity(
     )
 
 
+# ----------------------------------------------------------------------- crypto
+
+
+def _execute_crypto(
+    signal: TradeSignal,
+    current_price: float,
+    live_equity: float,
+    is_live: bool,
+    existing_position: Optional[ExistingPosition],
+) -> ExecutionResult:
+    """Spot crypto on Alpaca. 24/7, so no market-hours gate; no bracket legs exist
+    for crypto orders, so every entry is marked for a bot-managed exit.
+    """
+    key, secret = _alpaca_credentials()
+
+    if signal.action not in ("buy", "sell"):
+        return ExecutionResult(
+            status="skipped",
+            message=f"{signal.symbol}: unsupported action {signal.action}. Only spot buys and sells are allowed.",
+        )
+
+    if is_live and not (key and secret):
+        return ExecutionResult(
+            status="error", message="ALPACA_API_KEY / ALPACA_API_SECRET missing; cannot trade live"
+        )
+
+    blocked = _guard(signal, existing_position)
+    if blocked:
+        return blocked
+
+    order_symbol = symbol_config.alpaca_order_symbol(signal.symbol)
+
+    if signal.action == "sell":
+        assert existing_position is not None  # guaranteed by _guard
+        qty = existing_position.qty
+        body: Dict[str, Any] = {
+            "symbol": order_symbol,
+            "side": "sell",
+            "type": "market",
+            "time_in_force": "gtc",
+            "qty": _format_qty(qty),
+        }
+        realized = (current_price - existing_position.avg_entry_price) * qty
+        return _submit_alpaca(
+            body,
+            is_live=is_live,
+            qty=qty,
+            fill_price=current_price,
+            realized_pnl_usd=realized,
+            entry_price=existing_position.avg_entry_price,
+            note=f"close {qty:g} {signal.symbol}",
+        )
+
+    budget_usd = live_equity * (signal.position_size_pct / 100.0)
+    if budget_usd < ALPACA_MIN_NOTIONAL_USD:
+        return ExecutionResult(
+            status="skipped",
+            message=(
+                f"{signal.symbol}: budget ${budget_usd:.2f} is below Alpaca's "
+                f"${ALPACA_MIN_NOTIONAL_USD:.2f} minimum notional"
+            ),
+        )
+
+    body = {
+        "symbol": order_symbol,
+        "side": "buy",
+        "type": "market",
+        "time_in_force": "gtc",
+        "notional": f"{budget_usd:.2f}",
+    }
+    qty_est = budget_usd / current_price
+    return _submit_alpaca(
+        body,
+        is_live=is_live,
+        qty=qty_est,
+        fill_price=current_price,
+        note=(
+            f"open ${budget_usd:.2f} notional of {signal.symbol} "
+            f"(~{qty_est:.8f}); crypto takes no bracket legs {MANAGED_EXIT_MARKER}"
+        ),
+    )
+
+
 def _format_qty(qty: float) -> str:
     """Alpaca accepts up to 9 decimals; trim trailing zeros so whole lots stay clean."""
     return f"{qty:.9f}".rstrip("0").rstrip(".")
@@ -434,6 +551,10 @@ def _execute_trade(
         if signal.action == "hold":
             return ExecutionResult(status="skipped", message="hold; nothing to execute")
 
+        if symbol_config.is_crypto(signal.symbol):
+            return _execute_crypto(
+                signal, current_price, live_equity, is_live, existing_position
+            )
         return _execute_equity(
             signal, current_price, live_equity, is_live, existing_position
         )

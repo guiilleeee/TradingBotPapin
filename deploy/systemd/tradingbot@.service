@@ -1,0 +1,17 @@
+# One unit for every job; the instance name is the job (cycle, watch, refresh,
+# screening). Started by the matching tradingbot-<job>.timer.
+# Install: see deploy/README.md. Assumes the repo lives at /opt/tradingbot and
+# runs as the `tradingbot` user -- edit both lines below if yours differ.
+[Unit]
+Description=TradingBot %i job
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=tradingbot
+WorkingDirectory=/opt/tradingbot
+ExecStart=/bin/bash /opt/tradingbot/deploy/run_job.sh %i
+# An approval-mode cycle can legitimately wait 10 min per proposed trade.
+TimeoutStartSec=2h
+Nice=5

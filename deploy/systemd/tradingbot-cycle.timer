@@ -1,0 +1,23 @@
+# Full trading cycle (funnel -> model -> risk -> [approval] -> execution).
+#
+# Unlike GitHub's UTC-only cron, systemd takes a time zone, so the two equity
+# slots are pinned to New York wall-clock time and follow US DST on their own --
+# 10:45 and 13:30 ET every trading day of the year, no seasonal edit ever. (In
+# Spain that is 16:45 / 19:30 most of the year, and an hour earlier during the
+# few weeks each spring and autumn when US and EU DST dates disagree.)
+# The overnight slot is crypto-only by construction (the funnel only proposes
+# crypto while NYSE is closed). Requires systemd >= 235 for the time-zone suffix
+# (Ubuntu 18.04+, Debian 10+).
+[Unit]
+Description=TradingBot trading cycle
+
+[Timer]
+OnCalendar=*-*-* 10:45:00 America/New_York
+OnCalendar=*-*-* 13:30:00 America/New_York
+OnCalendar=*-*-* 02:00:00 UTC
+# A cycle missed while the server was down is not replayed at a random hour.
+Persistent=false
+Unit=tradingbot@cycle.service
+
+[Install]
+WantedBy=timers.target

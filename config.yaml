@@ -1,4 +1,4 @@
-# TradingBot v3 — Equities only (Alpaca), Nasdaq-50 universe
+# TradingBot v3 -- Alpaca: Nasdaq-100 top-25 equities + 5 fixed crypto pairs
 
 # Only the literal boolean `true` enables real-money trading. Anything else --
 # "true", 1, yes, a typo -- resolves to simulation. Failing safe is the point.
@@ -10,6 +10,7 @@ signal_provider: claude
 db_path: trading_bot.db
 csv_path: signals.csv
 positions_path: positions.json
+benchmark_path: benchmark.json
 
 # Starting equity for simulation, and the fallback if live balances cannot be read.
 fallback_equity_usd: 1000.0
@@ -19,7 +20,8 @@ fallback_equity_usd: 1000.0
 circuit_breaker_loss_pct: 3.0
 
 # Percent of equity to risk per trade. Position size is derived from this and the
-# stop distance, then clamped by the absolute cap.
+# stop distance, then clamped by the absolute cap (per-symbol caps: see
+# symbol_overrides below).
 max_risk_pct: 1.0
 max_absolute_position_pct: 20.0
 
@@ -34,41 +36,96 @@ min_reward_risk_ratio: 1.5
 min_confidence_live: 0.60
 min_confidence_simulation: 0.40
 
-# Nasdaq-50 universe: the 50 largest non-financial Nasdaq companies by market cap.
-# This list is the static fallback; weekly_screening.yml refreshes symbols.yaml
-# with a live pull of the current Nasdaq-50 each Monday.
+# ---------------------------------------------------------------- approval mode
+# Human approval before every live, model-driven order (approval.py).
+#
+# Delivered as a phone push notification through ntfy (notifications.py).
+#
+# To turn it on:
+#   1. Generate the topic name -- run exactly:   echo tb-$(openssl rand -hex 16)
+#      and copy the whole output (35 characters, e.g. tb-9f2c...). On the public
+#      ntfy.sh server the topic name is the password; the bot refuses any topic
+#      under 24 characters. Never reuse it anywhere else.
+#   2. Install the ntfy app (Android: Play Store / F-Droid; iOS: App Store) and
+#      subscribe to that topic.
+#   3. Set NTFY_TOPIC as a GitHub secret (and/or in the VPS .env -- see
+#      deploy/README.md). NTFY_SERVER / NTFY_TOKEN only for a self-hosted or
+#      access-protected server.
+#   4. Change the line below to `approval_mode: true` and push.
+#
+# Each proposed buy/sell then arrives as a push notification with Aprovar /
+# Rebutjar buttons. Only Aprovar submits the order to Alpaca (after a fresh price
+# and position re-check); Rebutjar or no answer within approval_timeout_seconds
+# logs it as skipped. Stop-loss / take-profit auto-exits are never held for
+# approval. Simulation is never gated. If approval_mode is true but NTFY_TOPIC is
+# not set, or ntfy is unreachable, every live order is skipped -- it fails
+# closed, never open.
+approval_mode: false
+approval_timeout_seconds: 600
+
+# ------------------------------------------------------------------------- funnel
+# Full-universe cycles (scheduled, or a manual run of trading_bot.yml) rank all
+# 30 symbols locally -- no model call -- and send the model only the top_n
+# candidates plus every symbol with an open position. Wake-up and single-symbol
+# manual analyses bypass this. While NYSE is closed, only crypto can be a
+# candidate (an equity buy would be skipped anyway). See funnel.py.
+funnel:
+  enabled: true
+  top_n: 6
+
+# ----------------------------------------------------------------------- universe
+# Equities: the 25 largest non-financial Nasdaq-100 companies by market cap. This
+# list is the static fallback; weekly_screening.yml recomputes it every Monday
+# into symbols.yaml, which replaces only the equity entries below.
+# Crypto: fixed, never rotated by the screen (asset_class: crypto is what keeps
+# them in place when symbols.yaml exists).
 symbols:
-  - symbol: AAPL
-    asset_class: equity
-  - symbol: MSFT
-    asset_class: equity
-  - symbol: NVDA
-    asset_class: equity
-  - symbol: AMZN
-    asset_class: equity
-  - symbol: META
-    asset_class: equity
-  - symbol: GOOGL
-    asset_class: equity
-  - symbol: GOOG
-    asset_class: equity
-  - symbol: AVGO
-    asset_class: equity
-  - symbol: TSLA
-    asset_class: equity
-  - symbol: COST
-    asset_class: equity
+  - {symbol: AAPL, asset_class: equity}
+  - {symbol: MSFT, asset_class: equity}
+  - {symbol: NVDA, asset_class: equity}
+  - {symbol: AMZN, asset_class: equity}
+  - {symbol: GOOGL, asset_class: equity}
+  - {symbol: META, asset_class: equity}
+  - {symbol: AVGO, asset_class: equity}
+  - {symbol: TSLA, asset_class: equity}
+  - {symbol: NFLX, asset_class: equity}
+  - {symbol: COST, asset_class: equity}
+  - {symbol: PLTR, asset_class: equity}
+  - {symbol: ASML, asset_class: equity}
+  - {symbol: AMD, asset_class: equity}
+  - {symbol: CSCO, asset_class: equity}
+  - {symbol: TMUS, asset_class: equity}
+  - {symbol: AZN, asset_class: equity}
+  - {symbol: MU, asset_class: equity}
+  - {symbol: LIN, asset_class: equity}
+  - {symbol: PEP, asset_class: equity}
+  - {symbol: SHOP, asset_class: equity}
+  - {symbol: ISRG, asset_class: equity}
+  - {symbol: APP, asset_class: equity}
+  - {symbol: INTU, asset_class: equity}
+  - {symbol: QCOM, asset_class: equity}
+  - {symbol: AMGN, asset_class: equity}
+  - {symbol: BTC-USD, asset_class: crypto}
+  - {symbol: ETH-USD, asset_class: crypto}
+  - {symbol: SOL-USD, asset_class: crypto}
+  - {symbol: XRP-USD, asset_class: crypto}
+  - {symbol: DOGE-USD, asset_class: crypto}
 
-# Notification channels. Both can be enabled independently. Web push requires
-# VAPID keys; Telegram requires TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID.
+# ----------------------------------------------------------------- notifications
+# ntfy phone push is the channel that actually delivers: alerts send whenever
+# NTFY_TOPIC is set in the environment. Web push is NOT implemented (the
+# dashboard is a static page with nowhere to store subscriptions); the bell icon
+# is UI only.
 notifications:
-  web_push: true
-  telegram: false
+  web_push: false
+  ntfy: true
 
-# Volume/price wake-up thresholds (volume_watch.py). Between 8h scheduled cycles,
-# a cheap watcher polls every 15 min and triggers a full analysis cycle for any
+# ------------------------------------------------------------------- wake trigger
+# Volume/price wake-up thresholds (volume_watch.py). Between scheduled cycles, a
+# cheap watcher polls every 15 min and triggers a full analysis cycle for any
 # symbol that crosses a threshold, subject to the cooldown. No LLM calls during
 # the watch itself -- cost is purely the price/volume fetch.
+# These are the defaults for every symbol; symbol_overrides can replace any of them.
 wake_trigger:
   buy_side:
     price_move_pct_15m: 1.5
@@ -77,3 +134,20 @@ wake_trigger:
     price_drop_pct_15m: 1.5
     price_drop_pct_1h: 3.0
   min_seconds_between_wakes: 3600
+
+# ---------------------------------------------------------------- symbol overrides
+# Per-symbol exceptions (symbol_config.py). `wake_trigger` is merged key-by-key over
+# the global block above -- anything not named here keeps the global value.
+# `max_absolute_position_pct` can only tighten the global cap, never raise it.
+# Only read from this file; symbols.yaml can never set these.
+symbol_overrides:
+  DOGE-USD:
+    # Routine DOGE noise would trip the global 1.5% thresholds several times a day.
+    wake_trigger:
+      buy_side:
+        price_move_pct_15m: 3.0
+        volume_multiple: 3.0
+      sell_side:
+        price_drop_pct_15m: 3.0
+        price_drop_pct_1h: 6.0
+    max_absolute_position_pct: 10.0

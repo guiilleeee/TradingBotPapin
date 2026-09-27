@@ -180,19 +180,18 @@ def compute_position_metrics(
         str(r["symbol"]): r for r in bot_logger.get_all_simulated_positions()
     }
 
-    for entry in config.get("symbols", []) or []:
-        symbol = entry["symbol"] if isinstance(entry, dict) else str(entry)
+    # One call for every open position, not one per configured symbol: a holding
+    # in a symbol the weekly screen has since rotated out (or one opened by a
+    # manual analysis) is still a real position and still belongs on this list.
+    # A broker failure raises out of here on purpose -- callers treat the export
+    # as non-fatal and leave the previous positions.json in place, which is
+    # better than publishing a falsely empty one (volume_watch.py reads this
+    # file to decide which symbols get sell-side wake checks).
+    live_positions = execution.fetch_all_live_positions()
+
+    for symbol, position in sorted(live_positions.items()):
         asset_class = infer_asset_class(symbol, config)
-
-        try:
-            position = execution.fetch_existing_position(
-                symbol=symbol, asset_class=asset_class, is_live=True, bot_logger=bot_logger
-            )
-        except Exception as exc:  # noqa: BLE001 - one symbol's broker lookup never blocks the rest
-            print(f"  [positions] {symbol}: live position lookup failed ({exc}); skipped")
-            continue
-
-        if position is None or position.qty <= 0:
+        if position.qty <= 0:
             continue
 
         own = managed.get(symbol)

@@ -206,3 +206,22 @@ def test_non_positive_price_cannot_produce_a_trade():
     result = validate(buy(), current_price=0.0)
     assert result.action == "hold"
     assert "not positive" in result.override_reason
+
+
+def test_buy_with_stop_above_price_is_held():
+    result = validate(buy(stop_loss_price=101.0, take_profit_price=115.0))
+    assert result.action == "hold"
+    assert "wrong side" in result.override_reason
+    assert result.position_size_pct == 0.0
+
+
+def test_buy_with_take_profit_below_price_is_held():
+    result = validate(buy(stop_loss_price=95.0, take_profit_price=99.0))
+    assert result.action == "hold"
+    assert "wrong side" in result.override_reason
+
+
+def test_sell_levels_are_not_side_checked():
+    """A sell's levels are never used once it executes (see rule 4b's comment)."""
+    raw = buy(action="sell", stop_loss_price=105.0, take_profit_price=90.0)
+    assert validate(raw).action == "sell"

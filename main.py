@@ -6,8 +6,11 @@ Run order matters and is deliberate:
   2. sweep open bot-managed positions for stop/take crossings, booking realised P&L
   3. compute equity from what is left open, so a swept position is never counted
      as both realised and unrealised
-  4. per symbol: circuit breaker, data, model, risk manager, execution, log
-  5. export the dashboard CSV
+  4. snapshot equity + QQQ for the benchmark
+  5. choose symbols: explicit --trigger-symbols, or the funnel over the universe
+     (every held symbol plus the top-N ranked candidates -- see funnel.py)
+  6. per symbol: circuit breaker, data, model, risk manager, [approval], execution, log
+  7. export the dashboard CSV, positions.json, benchmark.json
 """
 
 from __future__ import annotations
@@ -19,14 +22,18 @@ import traceback
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+import approval
+import benchmark
 import data_fetcher
 import execution
+import funnel
 import notifications
 import position_metrics
 import risk_manager
+import symbol_config
 from logger import BotLogger
 from mode import ModeSettings, resolve_is_live, resolve_mode_settings
-from models import ExistingPosition, SignalInput, TradeSignal
+from models import ExecutionResult, ExistingPosition, SignalInput, TradeSignal
 
 DEFAULT_CONFIG_PATH = "config.yaml"
 DEFAULT_SYMBOLS_PATH = "symbols.yaml"
@@ -59,6 +66,10 @@ def load_config(
     provider settings even if its own logic were somehow wrong -- that guarantee
     holds structurally here, not by convention in screening.py.
 
+    symbols.yaml only ever carries the screened *equities*. The fixed crypto
+    entries (asset_class: crypto) in config.yaml are kept alongside whatever it
+    supplies -- the weekly screen rotates stocks, never the crypto set.
+
     A missing or empty symbols.yaml is not an error: config.yaml's own `symbols`
     (hand-tuned, checked into the repo) stands in for it, so the 4h cycle never
     ends up with nothing to trade because the weekly job hasn't run yet, or broke.
@@ -82,14 +93,24 @@ def load_config(
             screened = yaml.safe_load(handle) or {}
         screened_symbols = screened.get("symbols")
         if screened_symbols:
-            config["symbols"] = screened_symbols
+            fixed_crypto = [
+                entry for entry in config.get("symbols", []) or []
+                if isinstance(entry, dict)
+                and str(entry.get("asset_class", "")).lower() == symbol_config.CRYPTO
+            ]
+            screened_names = {
+                (e["symbol"] if isinstance(e, dict) else str(e)).upper() for e in screened_symbols
+            }
+            config["symbols"] = list(screened_symbols) + [
+                e for e in fixed_crypto if e["symbol"].upper() not in screened_names
+            ]
 
     return config
 
 
 def infer_asset_class(symbol: str, config: Dict[str, Any]) -> str:
-    """Asset class for a symbol. Always equity now that crypto is removed."""
-    return "equity"
+    """Asset class for a symbol: "crypto" for the fixed "-USD" pairs, else "equity"."""
+    return symbol_config.asset_class(symbol, config)
 
 
 def get_provider(config: Dict[str, Any]) -> Tuple[str, Any]:
@@ -144,7 +165,7 @@ class CircuitBreakerTracker:
     def note_tripped(self, is_live: bool, today_loss_pct: float, threshold_pct: float) -> None:
         if self.already_tripped_at_cycle_start or self.alerted_this_cycle:
             return
-        telegram_alerts.send_circuit_breaker_alert(is_live, today_loss_pct, threshold_pct)
+        notifications.send_circuit_breaker_alert(is_live, today_loss_pct, threshold_pct)
         self.alerted_this_cycle = True
 
 
@@ -331,6 +352,12 @@ def _run_cycle_body(
     print(f"Equity: ${equity:,.2f}  (auto-closed this cycle: "
           f"{sorted(sweep.closed_symbols) or 'none'})")
 
+    # Same instant as the equity figure above, before any trade this cycle moves it.
+    try:
+        benchmark.record_snapshot(bot_logger, equity, is_live)
+    except Exception as exc:  # noqa: BLE001 - dashboard data never fails a cycle
+        print(f"benchmark snapshot failed (non-fatal): {type(exc).__name__}: {exc}")
+
     # The breaker's state as of *before* any symbol in this cycle is processed.
     # Passed into _process_symbol via the tracker so the alert fires exactly
     # once, on the transition into the tripped state -- never for a breaker
@@ -353,21 +380,24 @@ def _run_cycle_body(
             entry for entry in configured_symbols
             if (entry["symbol"] if isinstance(entry, dict) else str(entry)).upper() in trigger_set
         ]
-        if trigger_reason == "manual":
+        if trigger_reason in ("manual", "wake_sell"):
             # A manual, dashboard-triggered analysis (the Cercador tab's "Executar
             # analisi ara") is allowed to target any symbol the user searched for,
-            # not just one already in the configured watchlist -- unlike
-            # volume_watch.py's wake-ups, which only ever fire for symbols the bot
-            # is already tracking. Synthesize a plain equity entry for the rest.
+            # not just one already in the configured watchlist. wake_sell only
+            # ever fires for a symbol already held, which may have rotated out of
+            # the universe since it was bought -- it must still be reviewable.
+            # wake_buy stays scoped to the watchlist. Synthesize entries for the rest.
             matched_upper = {
                 (entry["symbol"] if isinstance(entry, dict) else str(entry)).upper()
                 for entry in matched
             }
             for sym in sorted(trigger_set - matched_upper):
-                matched.append({"symbol": sym, "asset_class": "equity"})
+                matched.append({"symbol": sym, "asset_class": symbol_config.asset_class(sym, config)})
         configured_symbols = matched
         if not configured_symbols:
             print(f"  No configured symbols match --trigger-symbols {trigger_symbols}")
+    elif funnel.funnel_enabled(config):
+        configured_symbols = _funnel_symbols(config, configured_symbols, is_live, bot_logger)
 
     for entry in configured_symbols:
         symbol = entry["symbol"] if isinstance(entry, dict) else str(entry)
@@ -413,7 +443,73 @@ def _run_cycle_body(
     except Exception as exc:  # noqa: BLE001
         print(f"positions.json export failed (non-fatal): {type(exc).__name__}: {exc}")
 
+    try:
+        benchmark_path = config.get("benchmark_path", benchmark.DEFAULT_BENCHMARK_PATH)
+        points = benchmark.export_benchmark_json(bot_logger, benchmark_path)
+        print(f"Exported {points} benchmark points to {benchmark_path}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"benchmark.json export failed (non-fatal): {type(exc).__name__}: {exc}")
+
     return 0
+
+
+def _held_symbols(is_live: bool, bot_logger: BotLogger) -> List[str]:
+    """Every symbol with an open position, universe member or not.
+
+    Live asks the broker for the full list (so a position in a symbol the weekly
+    screen has since rotated out is still reviewed) and adds the bot-managed
+    ledger. If the broker can't be reached, the ledger alone stands in -- this
+    cycle may then skip reviewing a bracket-protected equity, which the broker's
+    own stop still covers.
+    """
+    held = {str(r["symbol"]) for r in bot_logger.get_all_simulated_positions() if float(r["qty"]) > 0}
+    if is_live:
+        try:
+            held |= set(execution.fetch_all_live_positions().keys())
+        except Exception as exc:  # noqa: BLE001
+            print(f"  [funnel] live position list unavailable ({type(exc).__name__}: {exc}); "
+                  "using the bot-managed ledger only")
+    return sorted(held)
+
+
+def _funnel_symbols(
+    config: Dict[str, Any],
+    configured_symbols: List[Any],
+    is_live: bool,
+    bot_logger: BotLogger,
+) -> List[Dict[str, Any]]:
+    """Rank the universe locally (no LLM) and keep held + top-N. See funnel.py."""
+    universe = [e["symbol"] if isinstance(e, dict) else str(e) for e in configured_symbols]
+    entries = {s.upper(): e for s, e in zip(universe, configured_symbols)}
+    top_n = funnel.top_n_from_config(config)
+    held = _held_symbols(is_live, bot_logger)
+
+    # A new equity entry while NYSE is closed would be skipped by execution
+    # anyway, so don't pay the model to propose one; crypto trades 24/7.
+    equities_open = execution._is_market_open()
+
+    def eligible(symbol: str) -> bool:
+        return equities_open or symbol_config.is_crypto(symbol, config)
+
+    data = funnel.fetch_funnel_data(universe)
+    result = funnel.select(universe, held, data, top_n=top_n, eligible=eligible)
+
+    print(f"Funnel: {len(universe)} ranked locally, {len(data)} with data; "
+          f"equity market {'open' if equities_open else 'closed (crypto-only candidates)'}")
+    for row in result.scored[: top_n + 4]:
+        if row["has_data"]:
+            print(f"  {row['symbol']:<9} score {row['score']:.3f}  vol x{row['volume_ratio']:.2f}  "
+                  f"move {row['last_return_pct']:+.2f}% ({row['move_z']:.1f} sigma)")
+    print(f"  held (always reviewed): {result.held or 'none'}")
+    print(f"  top {top_n} candidates:   {result.candidates or 'none'}")
+
+    selected = []
+    for symbol in result.selected:
+        entry = entries.get(symbol.upper())
+        if entry is None:
+            entry = {"symbol": symbol, "asset_class": symbol_config.asset_class(symbol, config)}
+        selected.append(entry)
+    return selected
 
 
 def _process_symbol(
@@ -431,6 +527,9 @@ def _process_symbol(
     trigger_reason: str = "scheduled",
 ) -> None:
     is_live = settings.is_live
+    max_absolute_position_pct = symbol_config.max_position_pct(
+        config, symbol, max_absolute_position_pct
+    )
 
     df = data_fetcher.fetch_ohlcv(symbol)
     indicators = data_fetcher.compute_indicators(df)
@@ -442,6 +541,7 @@ def _process_symbol(
 
     signal_input = SignalInput(
         symbol=symbol,
+        asset_class=symbol_config.asset_class(symbol, config),
         current_price=current_price,
         account_equity_usd=equity,
         existing_position=existing_position,
@@ -493,7 +593,39 @@ def _process_symbol(
     )
 
     exec_result = None
-    if final.action != "hold":
+    if final.action != "hold" and is_live and approval.approval_enabled(config):
+        final, current_price, exec_result = _approval_gate(
+            symbol=symbol,
+            raw=raw,
+            final=final,
+            current_price=current_price,
+            config=config,
+            equity=equity,
+            is_live=is_live,
+            today_loss_pct=today_loss_pct,
+            circuit_breaker_loss_pct=circuit_breaker_loss_pct,
+            max_risk_pct=max_risk_pct,
+            max_absolute_position_pct=max_absolute_position_pct,
+            min_confidence=settings.min_confidence,
+            min_reward_risk_ratio=min_reward_risk_ratio,
+        )
+        if exec_result is None:
+            # Re-read the holding too, not just the price: another cycle (a
+            # wake-up running alongside this one) may have bought or sold this
+            # symbol during the wait, and the duplicate-buy / naked-sell guards
+            # must judge the position as it is now. A failed lookup is a skip.
+            try:
+                existing_position = execution.fetch_existing_position(
+                    symbol=symbol, is_live=is_live, bot_logger=bot_logger
+                )
+            except Exception as exc:  # noqa: BLE001
+                exec_result = ExecutionResult(
+                    status="skipped",
+                    message=f"approved, but the position re-check failed ({type(exc).__name__}); "
+                            "order not submitted",
+                )
+
+    if final.action != "hold" and exec_result is None:
         exec_result = execution.execute_trade(
             signal=final,
             current_price=current_price,
@@ -511,7 +643,7 @@ def _process_symbol(
 
         _update_ledger(bot_logger, final, exec_result, current_price, is_live)
 
-        telegram_alerts.send_trade_alert(
+        notifications.send_trade_alert(
             is_live=is_live,
             symbol=symbol,
             action=final.action,
@@ -527,6 +659,79 @@ def _process_symbol(
         + (f" | override: {final.override_reason}" if final.override_reason else "")
         + (f" | exec: {exec_result.status} - {exec_result.message}" if exec_result else "")
     )
+
+
+def _approval_gate(
+    *,
+    symbol: str,
+    raw: Any,
+    final: TradeSignal,
+    current_price: float,
+    config: Dict[str, Any],
+    equity: float,
+    is_live: bool,
+    today_loss_pct: float,
+    circuit_breaker_loss_pct: float,
+    max_risk_pct: float,
+    max_absolute_position_pct: float,
+    min_confidence: float,
+    min_reward_risk_ratio: float,
+) -> Tuple[TradeSignal, float, Optional[ExecutionResult]]:
+    """Hold a live order until a human approves it (approval.py).
+
+    Returns (final, current_price, exec_result). A non-None exec_result means
+    "do not execute; log this skip instead". On approval the price is re-fetched
+    and the model's raw signal re-validated against it: up to ten minutes can
+    pass, and a stop the price has already crossed must not go out as a bracket.
+    """
+    timeout = approval.approval_timeout_seconds(config)
+    print(f"- {symbol}: {final.action} awaiting approval (up to {int(timeout)}s)...")
+    decision = approval.request_approval(
+        symbol=symbol,
+        action=final.action,
+        size_pct=final.position_size_pct,
+        price=current_price,
+        stop_loss=final.stop_loss_price,
+        take_profit=final.take_profit_price,
+        confidence=final.confidence,
+        reasoning=final.reasoning,
+        equity=equity,
+        timeout_seconds=timeout,
+    )
+    if not decision.approved:
+        notifications.send_approval_outcome_alert(is_live, symbol, final.action, decision.outcome)
+        return final, current_price, ExecutionResult(
+            status="skipped",
+            message=f"approval {decision.outcome}: {decision.detail}; order not submitted",
+        )
+
+    try:
+        fresh_price = data_fetcher.latest_price(data_fetcher.fetch_ohlcv(symbol))
+    except Exception as exc:  # noqa: BLE001 - no fresh price, no order
+        return final, current_price, ExecutionResult(
+            status="skipped",
+            message=f"approved, but the price re-check failed ({type(exc).__name__}); order not submitted",
+        )
+
+    revalidated = risk_manager.validate(
+        raw=raw,
+        current_price=fresh_price,
+        today_realized_loss_pct=today_loss_pct,
+        circuit_breaker_loss_pct=circuit_breaker_loss_pct,
+        max_risk_pct=max_risk_pct,
+        max_absolute_position_pct=max_absolute_position_pct,
+        min_confidence=min_confidence,
+        min_reward_risk_ratio=min_reward_risk_ratio,
+    )
+    if revalidated.action != final.action:
+        return revalidated, fresh_price, ExecutionResult(
+            status="skipped",
+            message=(
+                f"approved, but no longer valid at the re-checked price {fresh_price:.6g}: "
+                f"{revalidated.override_reason}; order not submitted"
+            ),
+        )
+    return revalidated, fresh_price, None
 
 
 def _update_ledger(

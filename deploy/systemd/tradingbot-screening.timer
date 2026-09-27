@@ -1,0 +1,13 @@
+# Weekly top-25 Nasdaq-100 screen (weekly_screening.yml), Monday 06:00 UTC.
+[Unit]
+Description=TradingBot weekly symbol screening
+
+[Timer]
+OnCalendar=Mon *-*-* 06:00:00 UTC
+# Missed (server down Monday morning)? Run it at next boot -- a stale universe
+# for a whole week is worse than a late screen.
+Persistent=true
+Unit=tradingbot@screening.service
+
+[Install]
+WantedBy=timers.target

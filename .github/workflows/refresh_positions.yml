@@ -1,12 +1,16 @@
 name: Refresh position prices
 
 on:
-  schedule:
-    # Every 15 minutes. This is a plain price refresh for the dashboard's holdings
-    # list -- no AI calls, no signal generation, no trading logic -- completely
-    # separate from and far cheaper than trading_bot.yml's 8h cycle. It exists so
-    # the dashboard can feel live without paying for a model call on every refresh.
-    - cron: '*/15 * * * *'
+  # SCHEDULE DISABLED: the VPS runs this job (deploy/systemd/, deploy/README.md).
+  # GitHub Actions and the VPS must never both be scheduled -- two bots would trade
+  # the same Alpaca account. workflow_dispatch stays for manual runs. To move back
+  # to Actions, stop the VPS timers first, then uncomment the block below.
+  # schedule:
+    # # Every 15 minutes. This is a plain price refresh for the dashboard's holdings
+    # # list -- no AI calls, no signal generation, no trading logic -- completely
+    # # separate from and far cheaper than trading_bot.yml's 8h cycle. It exists so
+    # # the dashboard can feel live without paying for a model call on every refresh.
+    # - cron: '*/15 * * * *'
   workflow_dispatch:
 
 permissions:

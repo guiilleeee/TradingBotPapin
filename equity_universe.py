@@ -1,13 +1,17 @@
-"""Equity universe (Nasdaq-50) and screening signal (yfinance).
+"""Equity universe (Nasdaq-100 top 25 by market cap) and screening signal (yfinance).
 
-This module replaces the legacy S&P 500 + Nasdaq-100 logic. The target universe is
-now strictly the top 50 non-financial Nasdaq-100 constituents by market cap.
-
-FMP provides sector and market cap data on its constituent endpoints, so the
-pipeline is:
+Pipeline, run weekly by screening.py:
 1. Fetch Nasdaq-100 constituents from FMP.
 2. Filter out financials (Financial Services sector).
-3. Sort by market cap descending and take the top 50.
+3. Rank by market cap and take the top 25.
+
+Market cap: FMP's constituent endpoints are not documented to carry it, and a
+missing value used to default to 0 for every row -- which made the "sort by
+market cap" a no-op and the resulting universe simply the first N rows in
+whatever order FMP returned them. Any constituent without a positive FMP market
+cap now gets one from yfinance, and if too few constituents end up with a real
+market cap the whole fetch returns [] so screening.py leaves last week's
+symbols.yaml untouched rather than publishing an arbitrary list.
 """
 
 from __future__ import annotations
@@ -28,8 +32,11 @@ INTER_CALL_DELAY_SECONDS = 0.4
 
 NASDAQ_100_MAX_PLAUSIBLE_SIZE = 160
 
-# We need the top 50 non-financial constituents
-TARGET_UNIVERSE_SIZE = 50
+# The top 25 non-financial Nasdaq-100 constituents by market cap.
+TARGET_UNIVERSE_SIZE = 25
+
+# Secondary share class -> primary. Dropped when the primary is also a constituent.
+SECONDARY_SHARE_CLASSES = {"GOOG": "GOOGL", "FOX": "FOXA"}
 
 # Minimum volume floor for equities (defense in depth).
 MIN_EQUITY_VOLUME = 100_000.0
@@ -68,8 +75,43 @@ def _get(path: str, params: dict | None = None) -> Any:
     return data
 
 
-def fetch_nasdaq50() -> List[str]:
-    """Fetch Nasdaq-100, filter financials, sort by market cap, take top 50."""
+def _yfinance_market_cap(symbol: str) -> float:
+    """Market cap from yfinance, 0.0 on any failure."""
+    try:
+        info = yf.Ticker(symbol).fast_info
+        value = info.get("market_cap") if hasattr(info, "get") else getattr(info, "market_cap", None)
+        return float(value or 0.0)
+    except Exception:
+        return 0.0
+
+
+def rank_by_market_cap(
+    rows: List[Dict[str, Any]], size: int, market_cap_lookup=_yfinance_market_cap
+) -> List[str]:
+    """Top `size` symbols by market cap, filling gaps from `market_cap_lookup`.
+
+    Returns [] unless at least `size` rows end up with a positive market cap -- an
+    arbitrary list must never be published as "the largest companies".
+    """
+    # One slot per company: a second share class would double the exposure to
+    # one issuer while crowding out the 25th-largest company.
+    present = {r["symbol"] for r in rows}
+    rows = [
+        r for r in rows
+        if not (r["symbol"] in SECONDARY_SHARE_CLASSES
+                and SECONDARY_SHARE_CLASSES[r["symbol"]] in present)
+    ]
+    for row in rows:
+        if not row["mcap"] or row["mcap"] <= 0:
+            row["mcap"] = market_cap_lookup(row["symbol"])
+    ranked = sorted((r for r in rows if r["mcap"] > 0), key=lambda r: r["mcap"], reverse=True)
+    if len(ranked) < size:
+        return []
+    return [r["symbol"] for r in ranked[:size]]
+
+
+def fetch_nasdaq100_top(size: int = TARGET_UNIVERSE_SIZE) -> List[str]:
+    """Fetch Nasdaq-100, filter financials, rank by market cap, take the top `size`."""
     for path in ("/stable/nasdaq-constituent", "/api/v3/nasdaq_constituent"):
         try:
             data = _get(path)
@@ -93,24 +135,29 @@ def fetch_nasdaq50() -> List[str]:
                 # FMP might return market_cap or marketCap depending on the endpoint schema.
                 # Default to 0 if missing so it falls to the bottom of the sort.
                 mcap = row.get("marketCap") or row.get("market_cap") or 0.0
-                non_financials.append({"symbol": sym, "mcap": float(mcap)})
-            
-            # Sort by market cap descending and take top 50
-            non_financials.sort(key=lambda x: x["mcap"], reverse=True)
-            return [x["symbol"] for x in non_financials[:TARGET_UNIVERSE_SIZE]]
+                try:
+                    mcap = float(mcap)
+                except (TypeError, ValueError):
+                    mcap = 0.0
+                non_financials.append({"symbol": sym, "mcap": mcap})
+
+            top = rank_by_market_cap(non_financials, size)
+            if top:
+                return top
         except Exception:
             continue
 
     return []
 
 
-def build_equity_universe() -> Set[str]:
-    """Nasdaq-50 universe.
+def build_equity_universe() -> List[str]:
+    """Top-25 Nasdaq-100 universe, largest market cap first.
 
-    Never empty by construction unless the fetch fails, in which case the caller
-    falls back to whatever symbols.yaml or config.yaml already has.
+    A list, not a set: the order is meaningful (the funnel breaks score ties by
+    it). Empty only if the fetch fails, in which case the caller falls back to
+    whatever symbols.yaml or config.yaml already has.
     """
-    return set(fetch_nasdaq50())
+    return fetch_nasdaq100_top(TARGET_UNIVERSE_SIZE)
 
 
 _MIN_TRADING_DAYS_FOR_MOMENTUM = 2

@@ -142,23 +142,26 @@ def test_simulation_skips_a_closed_zero_qty_row(tmp_path, monkeypatch):
     assert rows == []
 
 
-def test_live_mode_reads_positions_from_the_broker(tmp_path, monkeypatch):
+def test_live_mode_reads_every_broker_position(tmp_path, monkeypatch):
+    """Live lists every open Alpaca position -- including one outside the configured
+    universe (rotated out by the weekly screen) and a crypto pair."""
     bot_logger = BotLogger(str(tmp_path / "t.db"))
-    config = {
-        "symbols": [
-            {"symbol": "AAPL", "asset_class": "equity"},
-            {"symbol": "MSFT", "asset_class": "equity"},
-        ]
-    }
+    bot_logger.open_simulated_position(
+        "BTC-USD", qty=0.01, avg_entry_price=60000.0, stop_loss_price=57000.0, take_profit_price=66000.0
+    )
+    config = {"symbols": [{"symbol": "AAPL", "asset_class": "equity"}]}
 
     import execution
 
-    def fake_fetch_existing_position(symbol, asset_class, is_live, bot_logger):
-        if symbol == "AAPL":
-            return ExistingPosition(qty=3.0, avg_entry_price=150.0)
-        return None  # MSFT: flat
-
-    monkeypatch.setattr(execution, "fetch_existing_position", fake_fetch_existing_position)
+    monkeypatch.setattr(
+        execution,
+        "fetch_all_live_positions",
+        lambda: {
+            "AAPL": ExistingPosition(qty=3.0, avg_entry_price=150.0),
+            "INTC": ExistingPosition(qty=5.0, avg_entry_price=30.0),
+            "BTC-USD": ExistingPosition(qty=0.01, avg_entry_price=60000.0),
+        },
+    )
     monkeypatch.setattr(
         data_fetcher, "fetch_ohlcv", lambda symbol, period="10y": fake_history(160.0)
     )
@@ -167,40 +170,33 @@ def test_live_mode_reads_positions_from_the_broker(tmp_path, monkeypatch):
         bot_logger, config=config, is_live=True, infer_asset_class=infer_asset_class
     )
 
-    assert [r["symbol"] for r in rows] == ["AAPL"]
-    assert rows[0]["qty"] == 3.0
-    assert rows[0]["avg_entry_price"] == 150.0
-    # No bot-managed exit for AAPL in this test -- a broker-side bracket is assumed,
-    # so stop/take must be an honest null, never guessed.
-    assert rows[0]["stop_loss_price"] is None
+    by_symbol = {r["symbol"]: r for r in rows}
+    assert set(by_symbol) == {"AAPL", "INTC", "BTC-USD"}
+    assert by_symbol["AAPL"]["qty"] == 3.0
+    # No bot-managed exit for AAPL -- a broker-side bracket is assumed, so
+    # stop/take must be an honest null, never guessed.
+    assert by_symbol["AAPL"]["stop_loss_price"] is None
+    # BTC-USD is bot-managed (crypto takes no bracket), so its levels come from the ledger.
+    assert by_symbol["BTC-USD"]["stop_loss_price"] == 57000.0
+    assert by_symbol["BTC-USD"]["asset_class"] == "crypto"
 
 
-def test_live_mode_one_symbols_broker_failure_does_not_block_the_rest(tmp_path, monkeypatch):
+def test_live_mode_broker_outage_raises_instead_of_reporting_flat(tmp_path, monkeypatch):
+    """An empty list would tell volume_watch.py nothing is held; raising leaves the
+    previous positions.json in place (main.py treats the export as non-fatal)."""
     bot_logger = BotLogger(str(tmp_path / "t.db"))
-    config = {
-        "symbols": [
-            {"symbol": "AAPL", "asset_class": "equity"},
-            {"symbol": "MSFT", "asset_class": "equity"},
-        ]
-    }
 
     import execution
 
-    def fake_fetch_existing_position(symbol, asset_class, is_live, bot_logger):
-        if symbol == "AAPL":
-            raise RuntimeError("Alpaca outage")
-        return ExistingPosition(qty=1.0, avg_entry_price=300.0)
+    def boom():
+        raise RuntimeError("Alpaca outage")
 
-    monkeypatch.setattr(execution, "fetch_existing_position", fake_fetch_existing_position)
-    monkeypatch.setattr(
-        data_fetcher, "fetch_ohlcv", lambda symbol, period="10y": fake_history(310.0)
-    )
+    monkeypatch.setattr(execution, "fetch_all_live_positions", boom)
 
-    rows = position_metrics.compute_position_metrics(
-        bot_logger, config=config, is_live=True, infer_asset_class=infer_asset_class
-    )
-
-    assert [r["symbol"] for r in rows] == ["MSFT"]
+    with pytest.raises(RuntimeError):
+        position_metrics.compute_position_metrics(
+            bot_logger, config={"symbols": []}, is_live=True, infer_asset_class=infer_asset_class
+        )
 
 
 # --------------------------------------------------------------- export_positions_json

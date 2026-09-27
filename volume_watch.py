@@ -5,18 +5,27 @@ Bidirectional Wake-up logic:
 - Check current positions from positions.json.
 - If we hold a symbol, check for sell-side triggers (price drops).
 - If we don't hold a symbol, check for buy-side triggers (price spikes / volume multiples).
-- Market-hours aware: aborts cleanly outside market hours.
+- A bot-managed exit (every crypto position, and notional equity entries) whose
+  stop-loss or take-profit has been crossed also wakes a sell cycle -- ignoring the
+  cooldown -- so main.py's sweep closes it within 15 minutes instead of waiting for
+  the next scheduled cycle. No broker holds a stop for these positions.
+- Thresholds are per symbol: config.yaml's `symbol_overrides` can widen them (DOGE)
+  on top of the global `wake_trigger` block (see symbol_config.wake_config).
+- Market-hours aware: outside NYSE hours only crypto symbols are checked; crypto
+  trades 24/7.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import sys
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import data_fetcher
+import symbol_config
 from execution import _is_market_open
 
 # --------------------------------------------------------------------------- config
@@ -60,6 +69,28 @@ def get_held_symbols(positions_path: str = DEFAULT_POSITIONS_PATH) -> set[str]:
         return set()
 
 
+def get_managed_exit_levels(db_path: str) -> Dict[str, Tuple[Optional[float], Optional[float]]]:
+    """(stop, take) for every bot-managed position in the ledger. Read-only.
+
+    Opened read-only on purpose rather than through BotLogger, which would create
+    or migrate the file -- this watcher only ever looks.
+    """
+    if not db_path or not os.path.exists(db_path):
+        return {}
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        try:
+            rows = conn.execute(
+                "SELECT symbol, stop_loss_price, take_profit_price FROM simulated_positions "
+                "WHERE qty > 0"
+            ).fetchall()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return {}
+    return {str(sym): (stop, take) for sym, stop, take in rows}
+
+
 # ----------------------------------------------------------------------- analysis
 
 
@@ -69,13 +100,17 @@ def check_symbol(
     wake_state: Dict[str, float],
     is_held: bool,
     now: Optional[float] = None,
+    exit_levels: Optional[Tuple[Optional[float], Optional[float]]] = None,
 ) -> Optional[Dict[str, Any]]:
+    """`exit_levels` is (stop, take) for a bot-managed position, None otherwise."""
     now = now if now is not None else time.time()
     min_seconds = float(wake_config.get("min_seconds_between_wakes", 3600))
     direction = "sell" if is_held else "buy"
     state_key = f"{symbol}_{direction}"
 
-    if (now - wake_state.get(state_key, 0.0)) < min_seconds:
+    in_cooldown = (now - wake_state.get(state_key, 0.0)) < min_seconds
+    watching_exit = is_held and exit_levels is not None and any(v is not None for v in exit_levels)
+    if in_cooldown and not watching_exit:
         return None
 
     try:
@@ -112,6 +147,23 @@ def check_symbol(
             volume_multiple = current_vol / avg_24h
 
     reasons = []
+
+    if watching_exit:
+        stop, take = exit_levels
+        if stop is not None and current_price <= float(stop):
+            reasons.append(f"crossed stop-loss {float(stop):.6g}")
+        if take is not None and current_price >= float(take):
+            reasons.append(f"reached take-profit {float(take):.6g}")
+        if in_cooldown:
+            # Only an exit-level crossing may bypass the cooldown.
+            if not reasons:
+                return None
+            return {
+                "symbol": symbol,
+                "direction": direction,
+                "state_key": state_key,
+                "trigger_reasons": reasons,
+            }
 
     if is_held:
         # Sell-side triggers
@@ -154,33 +206,41 @@ def run_watch(
     """Check all configured symbols and return categorized flagged symbols.
     Returns: {"wake_buy": ["AAPL", ...], "wake_sell": ["MSFT", ...]}
     """
-    if not _is_market_open():
-        print("Market is closed. Skipping volume watch.")
-        return {}
+    # Same loader as main.py, so the watcher sees the screened symbols.yaml
+    # universe plus the fixed crypto -- not just config.yaml's static fallback.
+    import main as main_module
+    config = main_module.load_config(config_path)
 
-    import yaml
-    with open(config_path, "r", encoding="utf-8") as f:
-        config = yaml.safe_load(f) or {}
-
-    wake_config = config.get("wake_trigger", {}) or {}
+    equities_open = _is_market_open()
     now = now if now is not None else time.time()
     wake_state = load_wake_state(wake_state_path)
-    held_symbols = get_held_symbols(positions_path)
+    managed_exits = get_managed_exit_levels(config.get("db_path", ""))
+    held_symbols = get_held_symbols(positions_path) | set(managed_exits)
+
+    universe = [
+        entry["symbol"] if isinstance(entry, dict) else str(entry)
+        for entry in config.get("symbols", []) or []
+    ]
+    # A held symbol outside the universe still gets its sell-side checks.
+    symbols = universe + sorted(s for s in held_symbols if s not in universe)
+    if not equities_open:
+        symbols = [s for s in symbols if symbol_config.is_crypto(s, config)]
+        print("Equity market is closed: checking crypto only.")
 
     print("=== Bidirectional Volume/Price Watch ===")
 
     flagged = {"wake_buy": [], "wake_sell": []}
-    
-    for entry in config.get("symbols", []) or []:
-        symbol = entry["symbol"] if isinstance(entry, dict) else str(entry)
+
+    for symbol in symbols:
         is_held = symbol in held_symbols
 
         result = check_symbol(
             symbol=symbol,
-            wake_config=wake_config,
+            wake_config=symbol_config.wake_config(config, symbol),
             wake_state=wake_state,
             is_held=is_held,
             now=now,
+            exit_levels=managed_exits.get(symbol),
         )
 
         if result is not None:

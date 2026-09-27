@@ -311,7 +311,7 @@ def test_csv_export_handles_an_empty_database(tmp_logger, tmp_path):
         assert list(csv.DictReader(handle)) == []
 
 
-def test_schema_has_exactly_the_three_tables(tmp_logger):
+def test_schema_has_exactly_the_expected_tables(tmp_logger):
     conn = sqlite3.connect(tmp_logger.db_path)
     names = {
         row[0]
@@ -320,4 +320,6 @@ def test_schema_has_exactly_the_three_tables(tmp_logger):
         )
     }
     conn.close()
-    assert names == {"signals", "pnl", "simulated_positions", "push_subscriptions"}
+    assert names == {
+        "signals", "pnl", "simulated_positions", "push_subscriptions", "benchmark_snapshots"
+    }

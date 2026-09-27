@@ -1,0 +1,12 @@
+# Price-only positions.json refresh, every 15 minutes (refresh_positions.yml).
+# Offset by 5 minutes from the watcher so the two don't hit yfinance/git at once.
+[Unit]
+Description=TradingBot position price refresh
+
+[Timer]
+OnCalendar=*:5/15
+Persistent=false
+Unit=tradingbot@refresh.service
+
+[Install]
+WantedBy=timers.target

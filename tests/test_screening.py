@@ -64,7 +64,7 @@ def test_writer_overwrites_a_stale_file_cleanly(tmp_path):
 @pytest.fixture
 def stub_equity_side(monkeypatch):
     """A healthy, signal-bearing equity universe."""
-    universe = {f"SYM{i}" for i in range(15)}
+    universe = [f"SYM{i}" for i in range(30)]
     monkeypatch.setattr(equity_universe, "build_equity_universe", lambda: universe)
     monkeypatch.setattr(
         equity_universe, "fetch_universe_price_data",
@@ -78,7 +78,10 @@ def test_run_screening_writes_symbols_on_a_healthy_run(tmp_path, stub_equity_sid
     rc = screening.run_screening(str(out))
     assert rc == 0
     doc = yaml.safe_load(out.read_text(encoding="utf-8"))
-    assert len(doc["symbols"]) == 10
+    assert len(doc["symbols"]) == 25
+    # Market-cap order (the universe's own order) is preserved, not score order.
+    assert [e["symbol"] for e in doc["symbols"]] == [f"SYM{i}" for i in range(25)]
+    assert all(e["asset_class"] == "equity" for e in doc["symbols"])
 
 def test_run_screening_fails_without_writing_when_equity_universe_is_too_small(tmp_path, monkeypatch):
     monkeypatch.setattr(equity_universe, "build_equity_universe", lambda: {"AAPL"})

@@ -47,6 +47,15 @@ CREATE TABLE IF NOT EXISTS simulated_positions (
     opened_at         TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS benchmark_snapshots (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp        TEXT NOT NULL,
+    equity           REAL NOT NULL,
+    benchmark_symbol TEXT NOT NULL,
+    benchmark_price  REAL,
+    is_live          INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS push_subscriptions (
     endpoint          TEXT PRIMARY KEY,
     auth              TEXT NOT NULL,
@@ -269,6 +278,47 @@ class BotLogger:
             if entered:
                 return float(entered)
 
+        return None
+
+    # ------------------------------------------------------ benchmark snapshots
+
+    def record_benchmark_snapshot(
+        self,
+        equity: float,
+        benchmark_symbol: str,
+        benchmark_price: Optional[float],
+        is_live: bool,
+    ) -> None:
+        """One (equity, benchmark price) pair, taken at the same instant each cycle."""
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT INTO benchmark_snapshots (timestamp, equity, benchmark_symbol, "
+                "benchmark_price, is_live) VALUES (?, ?, ?, ?, ?)",
+                (utc_now_iso(), float(equity), benchmark_symbol,
+                 None if benchmark_price is None else float(benchmark_price), int(bool(is_live))),
+            )
+
+    def get_benchmark_snapshots(self, is_live: bool = True) -> List[Dict[str, Any]]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT timestamp, equity, benchmark_symbol, benchmark_price FROM "
+                "benchmark_snapshots WHERE is_live = ? ORDER BY timestamp, id",
+                (int(bool(is_live)),),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_first_live_trade_timestamp(self) -> Optional[str]:
+        """Timestamp of the first live buy/sell that actually filled, or None."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT timestamp, final_signal, execution_result FROM signals "
+                "WHERE is_live = 1 ORDER BY id"
+            ).fetchall()
+        for row in rows:
+            if _load(row["final_signal"]).get("action") not in ("buy", "sell"):
+                continue
+            if _load(row["execution_result"]).get("status") == "success":
+                return str(row["timestamp"])
         return None
 
     # -------------------------------------------------------- push subscriptions

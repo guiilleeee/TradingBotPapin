@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="manifest" href="manifest.json">
-<script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+<script src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
 <style>
   :root {
     color-scheme: dark;
@@ -177,6 +177,21 @@
   }
   .eq-tooltip b { display: block; font-size: 13px; }
   .eq-tooltip span { color: var(--muted); font-size: 10.5px; }
+
+  /* ------------------------------------------------------ QQQ benchmark */
+  /* Two series on one % axis, both rebased to 0 at the first live trade.
+     Colors validated for this dark surface (dataviz validate_palette.js). QQQ is
+     also dashed, so the pair never relies on color alone. */
+  :root { --bench-bot: #4f8ff0; --bench-qqq: #b98410; }
+  #benchWrap { position: relative; }
+  #benchChart { width: 100%; height: 180px; display: block; overflow: visible; cursor: crosshair; }
+  .bench-legend { display: flex; gap: var(--space-4); font-size: 11.5px; color: var(--text-dim); margin: -6px 0 var(--space-3); flex-wrap: wrap; }
+  .bench-legend .key { display: inline-flex; align-items: center; gap: 6px; }
+  .bench-legend svg { width: 18px; height: 6px; }
+  .bench-legend b { font-weight: 600; color: var(--text); }
+  .bench-note { font-size: 10.5px; color: var(--muted); margin-top: var(--space-2); }
+  .bench-tip-row { display: flex; align-items: center; gap: 6px; }
+  .bench-tip-row i { width: 10px; height: 2px; display: inline-block; }
 
   /* ------------------------------------------------------------- holdings */
   .holding {
@@ -424,6 +439,16 @@
     <div class="eq-tooltip" id="eqTooltip"></div>
   </div>
 
+  <div class="panel" id="benchWrap">
+    <h2><svg class="icon"><use href="#i-up"/></svg>Rendiment vs QQQ</h2>
+    <div class="bench-legend" id="benchLegend"></div>
+    <svg id="benchChart" viewBox="0 0 680 180" preserveAspectRatio="none" role="img"
+         aria-label="Rendiment acumulat del bot comparat amb QQQ"></svg>
+    <div class="eq-tooltip" id="benchTooltip"></div>
+    <div class="bench-note">Rendiment acumulat des de la primera operacio real, tots dos a 0% en aquell moment.
+      Els dipositos o retirades de capital es comptarien com a rendiment del bot.</div>
+  </div>
+
   <div class="panel">
     <h2><svg class="icon"><use href="#i-wallet"/></svg>Posicions obertes</h2>
     <div id="holdings"></div>
@@ -466,8 +491,8 @@
 <section id="tab-cercador" class="tab">
   <div class="panel" style="display: flex; flex-direction: column; gap: var(--space-4);">
     <div style="font-size: 11.5px; color: var(--muted);">
-      Cerca sobre l'univers Nasdaq-50 actual del bot (la llista de <code class="mono">symbols</code>
-      a config.yaml) &mdash; suggerit al escriure. Qualsevol simbol nord-america tambe mostra grafic,
+      Cerca sobre l'univers actual del bot (25 accions del Nasdaq-100 + 5 cripto, la llista de
+      <code class="mono">symbols</code> a config.yaml) &mdash; suggerit al escriure. Qualsevol simbol nord-america tambe mostra grafic,
       pero nomes els de l'univers son analitzats pel cicle programat.
     </div>
     <div style="display: flex; gap: var(--space-3);">
@@ -883,6 +908,116 @@ function renderEquityCurve(data) {
   svg.addEventListener('touchend', handleLeave);
 })();
 
+// ========================================================= QQQ benchmark ==
+// benchmark.json (benchmark.py): one point per cycle, bot equity and QQQ both
+// rebased to 0% at the first live trade. One shared % axis -- never two scales.
+let benchState = { points: [], xs: [], yBot: [], yQqq: [], W: 680, H: 180 };
+
+function fmtPct(v) { return (v >= 0 ? '+' : '') + v.toFixed(2) + '%'; }
+
+function renderBenchmark(payload) {
+  const svg = document.getElementById('benchChart');
+  const legend = document.getElementById('benchLegend');
+  const points = (payload && payload.points) || [];
+  const sym = (payload && payload.benchmark_symbol) || 'QQQ';
+
+  if (points.length < 2) {
+    benchState.points = [];
+    svg.style.display = 'none';
+    legend.innerHTML = `<div class="empty-note">${
+      payload && payload.first_live_trade_at
+        ? 'Calen almenys dos cicles despres de la primera operacio real per dibuixar la comparativa.'
+        : 'Encara no hi ha cap operacio real: la comparativa amb ' + escapeHtml(sym) + ' comenca a la primera.'
+    }</div>`;
+    return;
+  }
+  svg.style.display = 'block';
+
+  const W = 680, H = 180, PAD_X = 6, PAD_Y = 14, LABEL_W = 64;
+  const bot = points.map(p => p.bot_pct), qqq = points.map(p => p.benchmark_pct);
+  const min = Math.min(0, ...bot, ...qqq), max = Math.max(0, ...bot, ...qqq);
+  const span = (max - min) || 1;
+  const plotW = W - PAD_X - LABEL_W;
+  const xs = points.map((_, i) => PAD_X + (i / (points.length - 1)) * plotW);
+  const y = v => H - PAD_Y - ((v - min) / span) * (H - PAD_Y * 2);
+  const yBot = bot.map(y), yQqq = qqq.map(y);
+  benchState = { points, xs, yBot, yQqq, W, H };
+
+  const lastBot = bot[bot.length - 1], lastQqq = qqq[qqq.length - 1];
+  // End labels, nudged apart when the two lines finish close together.
+  let lb = yBot[yBot.length - 1], lq = yQqq[yQqq.length - 1];
+  if (Math.abs(lb - lq) < 12) { const mid = (lb + lq) / 2, up = lb <= lq ? -6 : 6; lb = mid + up; lq = mid - up; }
+  const lx = xs[xs.length - 1] + 8;
+
+  svg.innerHTML = `
+    <line x1="${PAD_X}" x2="${PAD_X + plotW}" y1="${y(0).toFixed(2)}" y2="${y(0).toFixed(2)}"
+          stroke="rgba(255,255,255,.16)" stroke-width="1" vector-effect="non-scaling-stroke"/>
+    <path d="${monotonePath(xs, yQqq)}" fill="none" stroke="var(--bench-qqq)" stroke-width="2"
+          stroke-dasharray="5 4" vector-effect="non-scaling-stroke"/>
+    <path d="${monotonePath(xs, yBot)}" fill="none" stroke="var(--bench-bot)" stroke-width="2"
+          vector-effect="non-scaling-stroke"/>
+    <text x="${lx}" y="${(lb + 4).toFixed(1)}" fill="var(--text)" font-size="11" class="mono">${fmtPct(lastBot)}</text>
+    <text x="${lx}" y="${(lq + 4).toFixed(1)}" fill="var(--text-dim)" font-size="11" class="mono">${fmtPct(lastQqq)}</text>
+    <line class="bench-cross" y1="0" y2="${H}" stroke="rgba(255,255,255,.2)" stroke-width="1"
+          vector-effect="non-scaling-stroke" style="display:none"/>
+    <circle class="bench-dot-q" r="4" fill="var(--bench-qqq)" stroke="var(--panel)" stroke-width="2" style="display:none"/>
+    <circle class="bench-dot-b" r="4" fill="var(--bench-bot)" stroke="var(--panel)" stroke-width="2" style="display:none"/>
+  `;
+
+  const swatch = (color, dash) =>
+    `<svg viewBox="0 0 18 6"><line x1="0" x2="18" y1="3" y2="3" stroke="${color}" stroke-width="2"${dash ? ' stroke-dasharray="5 3"' : ''}/></svg>`;
+  legend.innerHTML = `
+    <span class="key">${swatch('var(--bench-bot)', false)}Bot <b class="mono">${fmtPct(lastBot)}</b></span>
+    <span class="key">${swatch('var(--bench-qqq)', true)}${escapeHtml(sym)} <b class="mono">${fmtPct(lastQqq)}</b></span>
+    <span class="key">Diferencia <b class="mono">${fmtPct(lastBot - lastQqq)}</b></span>`;
+}
+
+(function wireBenchTooltip() {
+  const svg = document.getElementById('benchChart');
+  const tooltip = document.getElementById('benchTooltip');
+
+  function handleMove(evt) {
+    const { points, xs, yBot, yQqq, W } = benchState;
+    if (!points.length) return;
+    const rect = svg.getBoundingClientRect();
+    const clientX = evt.touches ? evt.touches[0].clientX : evt.clientX;
+    const relX = ((clientX - rect.left) / rect.width) * W;
+    let idx = 0, best = Infinity;
+    for (let i = 0; i < xs.length; i++) {
+      const d = Math.abs(xs[i] - relX);
+      if (d < best) { best = d; idx = i; }
+    }
+    const cross = svg.querySelector('.bench-cross');
+    cross.setAttribute('x1', xs[idx]); cross.setAttribute('x2', xs[idx]); cross.style.display = 'block';
+    const db = svg.querySelector('.bench-dot-b'), dq = svg.querySelector('.bench-dot-q');
+    db.setAttribute('cx', xs[idx]); db.setAttribute('cy', yBot[idx]); db.style.display = 'block';
+    dq.setAttribute('cx', xs[idx]); dq.setAttribute('cy', yQqq[idx]); dq.style.display = 'block';
+
+    const p = points[idx];
+    const date = new Date(p.t);
+    const label = isNaN(date) ? (p.t || '').slice(0, 16).replace('T', ' ')
+      : date.toLocaleString('ca-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    tooltip.innerHTML = `
+      <div class="bench-tip-row"><i style="background:var(--bench-bot)"></i>Bot <b class="mono">${fmtPct(p.bot_pct)}</b></div>
+      <div class="bench-tip-row"><i style="background:var(--bench-qqq)"></i>QQQ <b class="mono">${fmtPct(p.benchmark_pct)}</b></div>
+      <span>${label}</span>`;
+    tooltip.style.display = 'block';
+    const left = (xs[idx] / W) * rect.width;
+    tooltip.style.left = Math.min(Math.max(left, 60), rect.width - 60) + 'px';
+    tooltip.style.top = svg.offsetTop + 'px';
+  }
+
+  function handleLeave() {
+    svg.querySelectorAll('.bench-cross, .bench-dot-b, .bench-dot-q').forEach(el => { el.style.display = 'none'; });
+    tooltip.style.display = 'none';
+  }
+
+  svg.addEventListener('mousemove', handleMove);
+  svg.addEventListener('mouseleave', handleLeave);
+  svg.addEventListener('touchmove', handleMove, { passive: true });
+  svg.addEventListener('touchend', handleLeave);
+})();
+
 // =============================================================== holdings ==
 const RETURN_WINDOWS = [
   ['return_1w_pct', '1s'], ['return_1m_pct', '1m'], ['return_6m_pct', '6m'],
@@ -1005,22 +1140,31 @@ function renderClocks(positions) {
 }
 
 // ============================================================= countdown ===
-// Same cron this dashboard's cycle actually runs on: every 4h, on the hour
-// (see .github/workflows/trading_bot.yml). Purely a presentation layer over
-// that fixed schedule -- it does not trigger anything itself. The ring's sweep
-// is a CSS transition on --pct (registered via @property above so browsers
-// that support it animate the conic-gradient smoothly); this is a live,
+// Same UTC cron slots trading_bot.yml actually runs on (14:45, 17:30, 02:00
+// UTC -- see the comment there for why they need no DST edits). Purely a
+// presentation layer over that fixed schedule -- it does not trigger anything
+// itself, and GitHub can start a scheduled run late. The ring's sweep is a CSS
+// transition on --pct (registered via @property above); this is a live,
 // once-a-second clock, not decorative motion, so it is not gated on
-// prefers-reduced-motion -- only its cosmetic sweep easing is (via the global
-// transition-duration override).
-const CYCLE_HOURS = 4;
+// prefers-reduced-motion -- only its cosmetic sweep easing is.
+const CYCLE_SLOTS_UTC = [[2, 0], [14, 45], [17, 30]];
+function cycleSlotsAround(now) {
+  const slots = [];
+  for (let dayOffset = -1; dayOffset <= 1; dayOffset++) {
+    for (const [h, m] of CYCLE_SLOTS_UTC) {
+      const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + dayOffset, h, m));
+      slots.push(d);
+    }
+  }
+  return slots.sort((a, b) => a - b);
+}
 function updateCountdown() {
   const now = new Date();
-  const next = new Date(now);
-  next.setUTCMinutes(0, 0, 0);
-  next.setUTCHours(Math.ceil((now.getUTCHours() + 0.0001) / CYCLE_HOURS) * CYCLE_HOURS);
+  const slots = cycleSlotsAround(now);
+  const next = slots.find(d => d > now);
+  const prev = [...slots].reverse().find(d => d <= now);
 
-  const totalMs = CYCLE_HOURS * 3600 * 1000;
+  const totalMs = next - prev;
   const remainingMs = next - now;
   const elapsedPct = 100 - (remainingMs / totalMs) * 100;
 
@@ -1351,10 +1495,14 @@ document.getElementById('refreshSecs').textContent = Math.round(REFRESH_MS / 100
 
 async function loadAll() {
   const bust = '?t=' + Date.now();
-  const [csvText, positionsPayload] = await Promise.all([
+  const [csvText, positionsPayload, benchmarkPayload] = await Promise.all([
     fetch('signals.csv' + bust).then(r => r.text()),
     fetch('positions.json' + bust).then(r => r.ok ? r.json() : null).catch(() => null),
+    fetch('benchmark.json' + bust).then(r => r.ok ? r.json() : null).catch(() => null),
   ]);
+  // Independent of signals.csv, so it renders (or shows its empty state) even
+  // before the first signal row exists.
+  renderBenchmark(benchmarkPayload);
 
   const raw = parseCSV(csvText.trim());
   if (raw.length < 2) return;
@@ -1426,7 +1574,7 @@ async function loadNasdaq50Watchlist() {
     const text = await fetch('config.yaml?t=' + Date.now()).then(r => r.text());
     const symbolsBlock = text.split(/^symbols:\s*$/m)[1];
     if (!symbolsBlock) return;
-    const symbols = [...symbolsBlock.matchAll(/-\s*symbol:\s*(\S+)/g)].map(m => m[1]);
+    const symbols = [...symbolsBlock.split(/^\S/m)[0].matchAll(/symbol:\s*([A-Za-z0-9.\-]+)/g)].map(m => m[1]);
     document.getElementById('nasdaq50List').innerHTML =
       symbols.map(s => `<option value="${escapeHtml(s)}">`).join('');
   } catch (e) {
@@ -1570,12 +1718,19 @@ document.getElementById('runAnalysisBtn').addEventListener('click', async () => 
   // GitHub API call right below.
   let token = sessionStorage.getItem('gh_pat');
   if (!token) {
-    token = prompt("Introdueix el teu GitHub Personal Access Token (PAT) amb permisos de 'repo':");
+    // The dispatch is authorised by GitHub, not by this page: without a token
+    // that has write access to the repo, GitHub rejects it (401/404) and no
+    // cycle runs. Use a fine-grained PAT limited to this one repository with
+    // only "Contents: Read and write" -- never a classic token with full 'repo'.
+    token = prompt("GitHub fine-grained token (nomes aquest repositori, permis 'Contents: Read and write'):");
     if (!token) return;
     try { sessionStorage.setItem('gh_pat', token); } catch (e) { /* private mode etc. -- fine, just re-asks next time */ }
   }
 
-  const repo = "guiilleeee/TradingBotV2"; // Assuming this from the file path / corpus name
+  // Derived from the GitHub Pages URL (<owner>.github.io/<repo>/), so the
+  // button always targets the repo actually serving this page -- a hardcoded
+  // name kept pointing at a repository that no longer exists.
+  const repo = `${location.hostname.split('.')[0]}/${location.pathname.split('/').filter(Boolean)[0] || ''}`;
 
   try {
     const res = await fetch(`https://api.github.com/repos/${repo}/dispatches`, {

@@ -1,12 +1,14 @@
 name: Weekly symbol screening
 
 on:
-  # Cron trigger disabled: equities (this job's whole point -- it also
-  # rescreens crypto, but the equity side is why it runs weekly at all) are
-  # deferred entirely until Alpaca is set up. workflow_dispatch stays enabled
-  # so this can still be run manually.
+  # SCHEDULE DISABLED: the VPS runs this job (deploy/systemd/, deploy/README.md).
+  # GitHub Actions and the VPS must never both be scheduled -- two bots would trade
+  # the same Alpaca account. workflow_dispatch stays for manual runs. To move back
+  # to Actions, stop the VPS timers first, then uncomment the block below.
+  # # Recomputes the top-25 Nasdaq-100 equities by market cap into symbols.yaml.
+  # # The five crypto pairs are fixed in config.yaml and never touched here.
   # schedule:
-  #   - cron: '0 6 * * 1'  # Monday 06:00 UTC
+    # - cron: '0 6 * * 1'  # Monday 06:00 UTC, before the week's first session
   workflow_dispatch:
 
 permissions:
@@ -38,9 +40,10 @@ jobs:
       - name: Run weekly screening
         env:
           FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
-          # Optional: alerts are a no-op with either of these unset (telegram_alerts.py).
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # Optional: alerts are a no-op with NTFY_TOPIC unset (notifications.py).
+          NTFY_SERVER: ${{ secrets.NTFY_SERVER }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
         run: python screening.py --output symbols.yaml
 
       - name: Commit symbols.yaml

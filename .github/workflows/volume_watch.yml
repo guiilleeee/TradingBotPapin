@@ -1,11 +1,15 @@
 name: Volume watch (off-schedule wake-up)
 
 on:
-  schedule:
-    # Every 15 minutes, same cadence as refresh_positions.yml. This is a cheap
-    # price/volume check -- no LLM calls unless a threshold is actually crossed,
-    # at which point it triggers a full trading cycle for the flagged symbol(s).
-    - cron: '*/15 * * * *'
+  # SCHEDULE DISABLED: the VPS runs this job (deploy/systemd/, deploy/README.md).
+  # GitHub Actions and the VPS must never both be scheduled -- two bots would trade
+  # the same Alpaca account. workflow_dispatch stays for manual runs. To move back
+  # to Actions, stop the VPS timers first, then uncomment the block below.
+  # schedule:
+    # # Every 15 minutes, same cadence as refresh_positions.yml. This is a cheap
+    # # price/volume check -- no LLM calls unless a threshold is actually crossed,
+    # # at which point it triggers a full trading cycle for the flagged symbol(s).
+    # - cron: '*/15 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -13,9 +17,12 @@ permissions:
 
 concurrency:
   group: volume-watch
-  # If a new 15-min tick arrives while a wake cycle is still running, let the
-  # newer one cancel the old one -- the fresher data is more useful.
-  cancel-in-progress: true
+  # Never cancel a running watch: it may be mid-cycle -- holding a live order
+  # for approval, or between an Alpaca fill and the commit that records it.
+  # Cancelling there kills the process before trading_bot.db is pushed, losing
+  # the ledger row a bot-managed exit needs. A tick that arrives meanwhile waits
+  # as the single pending run (GitHub keeps at most one; newer ticks replace it).
+  cancel-in-progress: false
 
 jobs:
   watch:
@@ -42,8 +49,9 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
           ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          NTFY_SERVER: ${{ secrets.NTFY_SERVER }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
         run: python volume_watch.py --config config.yaml
 
       - name: Publish dashboard (only if a cycle ran)
@@ -53,6 +61,7 @@ jobs:
           cp signals.csv docs/signals.csv
           cp config.yaml docs/config.yaml
           [ -f positions.json ] && cp positions.json docs/positions.json || true
+          [ -f benchmark.json ] && cp benchmark.json docs/benchmark.json || true
           [ -f wake_state.json ] && true || true
 
       - name: Commit results
@@ -66,6 +75,7 @@ jobs:
           git add -f wake_state.json || true
           git add -f docs/index.html docs/signals.csv docs/config.yaml signals.csv trading_bot.db 2>/dev/null || true
           [ -f positions.json ] && git add -f positions.json docs/positions.json 2>/dev/null || true
+          [ -f benchmark.json ] && git add -f benchmark.json docs/benchmark.json 2>/dev/null || true
 
           if git diff --staged --quiet; then
             echo "Nothing changed this watch cycle."

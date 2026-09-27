@@ -1,4 +1,4 @@
-"""Weekly symbol screening: pick the top Nasdaq-50 candidates for the trading cycle.
+"""Weekly symbol screening: the top-25 Nasdaq-100 equities by market cap.
 
 This job never trades and never touches the model. It only decides what the
 trading cycle gets to *analyse* -- the AI's own judgment (system prompt rules 4/5:
@@ -6,11 +6,14 @@ no volume confirmation, conflicting signals -> hold) and risk_manager.py remain
 the only things that can turn a candidate into an actual order. Nothing written
 here can widen or bypass either.
 
-Single-layer selection, equities only:
+Equities only. The universe is the 25 largest non-financial Nasdaq-100
+companies by market cap (equity_universe.build_equity_universe), written in
+market-cap order. The five crypto pairs are fixed in config.yaml and are never
+rotated here -- main.load_config keeps them alongside this file's equities.
 
-  Layer 1 (objective, no AI): liquidity + momentum from yfinance.
-    Equities are filtered by real trading volume and price momentum measured
-    directly against the Nasdaq-50 universe.
+The per-cycle choice of *which* of these the model actually analyses is not made
+here; funnel.py ranks the whole universe locally at every cycle. The weekly
+volume/momentum scores below are informational (logged into symbols.yaml).
 
 Blast radius: this entire module can fail in any way and the trading cycle is
 unaffected -- `main.load_config` falls back to whatever `symbols.yaml` (or
@@ -33,8 +36,8 @@ from secrets_redaction import sanitize
 DEFAULT_OUTPUT_PATH = "symbols.yaml"
 DEFAULT_CONFIG_PATH_FOR_ALERTS = "config.yaml"
 
-# Full Nasdaq-50 is selected and scored.
-EQUITY_COUNT = 10
+# All 25 are kept; funnel.py picks per cycle.
+EQUITY_COUNT = equity_universe.TARGET_UNIVERSE_SIZE
 
 
 # ------------------------------------------------------------------ output
@@ -84,9 +87,9 @@ def run_screening(
         return 1
 
     try:
-        print("=== Weekly symbol screening (Nasdaq-50) ===")
+        print(f"=== Weekly symbol screening (Nasdaq-100 top {EQUITY_COUNT}) ===")
 
-        print("Building equity universe (Nasdaq-50)...")
+        print("Building equity universe (Nasdaq-100, by market cap)...")
         equity_pool = equity_universe.build_equity_universe()
         print(f"  universe: {len(equity_pool)} symbols")
         if len(equity_pool) < EQUITY_COUNT:
@@ -98,8 +101,10 @@ def run_screening(
         print("  fetching universe-wide volume/momentum (one batched yfinance call)...")
         price_data = equity_universe.fetch_universe_price_data(sorted(equity_pool))
         print(f"  usable price data for {len(price_data)}/{len(equity_pool)} universe symbols")
-        equity_scored = equity_universe.score_equities(equity_pool, price_data)
-        equity_symbols = equity_universe.select_top_equities(equity_scored, EQUITY_COUNT)
+        equity_scored = equity_universe.score_equities(set(equity_pool), price_data)
+        # Market-cap order, not score order: every one of these is kept, and the
+        # order is what the funnel falls back to on a score tie.
+        equity_symbols = list(equity_pool)[:EQUITY_COUNT]
         signal_count = sum(1 for r in equity_scored if r["has_signal"])
         print(f"  {signal_count} symbols carried real volume/momentum signal this week")
         print(f"  selected: {equity_symbols}")
@@ -140,6 +145,7 @@ def _write_symbols_file(
             "equity": {
                 s: {"score": round(equity_by_symbol[s]["score"], 4)}
                 for s in equity_symbols
+                if s in equity_by_symbol
             },
         },
     }

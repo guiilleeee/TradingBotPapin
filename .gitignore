@@ -23,3 +23,4 @@ historical_screening_trades.csv
 #   *.csv
 #   !signals.csv
 #   !docs/*.csv
+.tradingbot.lock

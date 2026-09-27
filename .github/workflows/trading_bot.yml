@@ -1,8 +1,23 @@
 name: TradingBot cycle
 
 on:
-  schedule:
-    - cron: '0 */8 * * *'
+  # SCHEDULE DISABLED: the VPS runs this job (deploy/systemd/, deploy/README.md).
+  # GitHub Actions and the VPS must never both be scheduled -- two bots would trade
+  # the same Alpaca account. workflow_dispatch stays for manual runs. To move back
+  # to Actions, stop the VPS timers first, then uncomment the block below.
+  # schedule:
+    # # Cron is UTC; NYSE is 13:30-20:00 UTC under US daylight time (EDT, mid-March
+    # # to early November) and 14:30-21:00 UTC under standard time (EST). Europe's
+    # # DST switch is irrelevant here -- UTC doesn't move -- only the US one shifts
+    # # the session, and both equity-hours slots below sit inside the session under
+    # # either US regime, so no seasonal cron edit is ever needed:
+    # #   14:45 UTC = 10:45 EDT / 09:45 EST  (16:45 CEST / 15:45 CET)
+    # #   17:30 UTC = 13:30 EDT / 12:30 EST  (19:30 CEST / 18:30 CET) -- mid-session,
+    # #               with 2.5h+ of headroom for GitHub's scheduled-run delays
+    # #   02:00 UTC = overnight; NYSE closed, so the funnel only proposes crypto
+    # - cron: '45 14 * * *'
+    # - cron: '30 17 * * *'
+    # - cron: '0 2 * * *'
   workflow_dispatch:
 
 permissions:
@@ -44,9 +59,11 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
           ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
-          # Optional: alerts are a no-op with either of these unset (telegram_alerts.py).
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # Phone push (alerts + approval_mode). Alerts are a no-op with NTFY_TOPIC
+          # unset; approval_mode fails closed without it (notifications.py, approval.py).
+          NTFY_SERVER: ${{ secrets.NTFY_SERVER }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
         run: python main.py --config config.yaml
 
       - name: Publish dashboard
@@ -58,6 +75,7 @@ jobs:
           # positions.json export is non-fatal in main.py (see position_metrics.py),
           # so it may not exist yet on a very first run -- don't fail the publish step.
           [ -f positions.json ] && cp positions.json docs/positions.json || true
+          [ -f benchmark.json ] && cp benchmark.json docs/benchmark.json || true
 
       - name: Commit results
         run: |
@@ -67,6 +85,7 @@ jobs:
           git add -f docs/index.html docs/signals.csv docs/config.yaml signals.csv trading_bot.db
           # positions.json export is non-fatal in main.py, so it may be absent.
           [ -f positions.json ] && git add -f positions.json docs/positions.json || true
+          [ -f benchmark.json ] && git add -f benchmark.json docs/benchmark.json || true
 
           if git diff --staged --quiet; then
             echo "Nothing changed this cycle."

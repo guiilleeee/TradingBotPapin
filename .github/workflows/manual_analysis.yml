@@ -21,7 +21,19 @@ concurrency:
 jobs:
   run-analysis:
     runs-on: ubuntu-latest
+    env:
+      # The payload is caller-controlled text. It is only ever read from this
+      # env var, never interpolated into a script with ${{ }}, so it cannot
+      # inject shell -- and the step below rejects anything that isn't a ticker.
+      SYMBOL: ${{ github.event.client_payload.symbol }}
     steps:
+      - name: Validate symbol
+        run: |
+          if ! printf '%s' "$SYMBOL" | grep -Eq '^[A-Z0-9.]{1,10}(-USD)?$'; then
+            echo "::error::Rejected client_payload.symbol (not a plain ticker)."
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
@@ -45,11 +57,12 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
           ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          NTFY_SERVER: ${{ secrets.NTFY_SERVER }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
         run: |
           python main.py --config config.yaml \
-            --trigger-symbols "${{ github.event.client_payload.symbol }}" \
+            --trigger-symbols "$SYMBOL" \
             --trigger-reason manual
 
       - name: Publish dashboard
@@ -59,6 +72,7 @@ jobs:
           cp signals.csv docs/signals.csv
           cp config.yaml docs/config.yaml
           [ -f positions.json ] && cp positions.json docs/positions.json || true
+          [ -f benchmark.json ] && cp benchmark.json docs/benchmark.json || true
 
       - name: Commit results
         run: |
@@ -67,13 +81,14 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -f docs/index.html docs/signals.csv docs/config.yaml signals.csv trading_bot.db
           [ -f positions.json ] && git add -f positions.json docs/positions.json || true
+          [ -f benchmark.json ] && git add -f benchmark.json docs/benchmark.json || true
 
           if git diff --staged --quiet; then
             echo "Nothing changed from this manual analysis."
             exit 0
           fi
 
-          git commit -m "chore: manual analysis for ${{ github.event.client_payload.symbol }} [skip ci]"
+          git commit -m "chore: manual analysis for $SYMBOL [skip ci]"
 
           # Same race as trading_bot.yml: this workflow's push can land between an
           # unrelated push and this checkout. Bounded rebase-and-retry rather than

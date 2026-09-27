@@ -31,6 +31,7 @@ def _config(tmp_logger, tmp_path, symbols):
         "db_path": tmp_logger.db_path,
         "csv_path": str(tmp_path / "signals.csv"),
         "positions_path": str(tmp_path / "positions.json"),
+        "benchmark_path": str(tmp_path / "benchmark.json"),
         "live_execution": False,
     }
 
@@ -68,9 +69,10 @@ def test_wake_trigger_does_not_widen_beyond_the_watchlist(tmp_logger, tmp_path, 
     assert processed == []
 
 
-def test_scheduled_cycle_is_unaffected(tmp_logger, tmp_path, monkeypatch):
-    """No trigger_symbols at all (the normal 8h cron) processes the whole watchlist,
-    unchanged by any of the above."""
+def test_scheduled_cycle_goes_through_the_funnel(tmp_logger, tmp_path, monkeypatch):
+    """No trigger_symbols at all (the normal cron) runs the funnel over the
+    watchlist; with no ranking data (conftest's default stub) the fallback is
+    universe order, which for a two-symbol watchlist is both symbols."""
     processed = []
     _stub_cycle_dependencies(monkeypatch, processed)
 

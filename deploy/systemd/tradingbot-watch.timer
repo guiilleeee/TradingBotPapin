@@ -1,0 +1,11 @@
+# Volume/price wake-up watcher, every 15 minutes (volume_watch.yml's cadence).
+[Unit]
+Description=TradingBot volume watch
+
+[Timer]
+OnCalendar=*:0/15
+Persistent=false
+Unit=tradingbot@watch.service
+
+[Install]
+WantedBy=timers.target

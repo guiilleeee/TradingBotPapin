@@ -93,6 +93,18 @@ def validate(
         if current_price <= 0:
             reasons.append(f"current_price {current_price} is not positive; cannot size the trade")
             action = "hold"
+        elif action == "buy" and (stop >= current_price or (take is not None and take <= current_price)):
+            # Every distance below is an abs(), so without this a long whose stop
+            # sits above the price (or target below it) sized and passed like a
+            # sane one -- and went to the broker as an inverted bracket. It is
+            # also exactly what a long looks like after the price has already
+            # fallen through the stop, e.g. while approval.py waited for a tap.
+            reasons.append(
+                f"buy levels are on the wrong side of price {current_price:.6g} "
+                f"(stop-loss {stop:.6g} must be below it"
+                + (f", take-profit {take:.6g} above it)" if take is not None else ")")
+            )
+            action = "hold"
         else:
             stop_distance_pct = abs(current_price - stop) / current_price
             if stop_distance_pct < MIN_STOP_DISTANCE_PCT:
