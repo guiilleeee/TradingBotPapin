@@ -60,7 +60,7 @@ min_confidence_simulation: 0.40
 # approval. Simulation is never gated. If approval_mode is true but NTFY_TOPIC is
 # not set, or ntfy is unreachable, every live order is skipped -- it fails
 # closed, never open.
-approval_mode: false
+approval_mode: true
 approval_timeout_seconds: 600
 
 # ------------------------------------------------------------------------- funnel
