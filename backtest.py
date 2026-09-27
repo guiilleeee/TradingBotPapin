@@ -582,7 +582,9 @@ def run_symbol_for_day(
 
     today_loss_pct = state.today_realized_loss_pct()
 
-    if today_loss_pct <= -abs(circuit_breaker_loss_pct):
+    # Same rule as main._process_symbol: a tripped breaker blocks buys only, so
+    # the model is skipped only when nothing is held (no sell is possible).
+    if today_loss_pct <= -abs(circuit_breaker_loss_pct) and existing is None:
         final = TradeSignal(
             symbol=symbol, action="hold", confidence=0.0, position_size_pct=0.0,
             stop_loss_price=None, take_profit_price=None,

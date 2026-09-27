@@ -321,7 +321,8 @@ def test_schema_has_exactly_the_expected_tables(tmp_logger):
     }
     conn.close()
     assert names == {
-        "signals", "pnl", "simulated_positions", "push_subscriptions", "benchmark_snapshots", "meta"
+        "signals", "pnl", "simulated_positions", "push_subscriptions", "benchmark_snapshots", "meta",
+        "broker_exits",
     }
 
 

@@ -65,8 +65,11 @@ def validate(
     take: Optional[float] = raw.take_profit_price
 
     # 1. Circuit breaker. Checked first so nothing else can talk us past it.
+    #    Blocks new buys only: a sell reduces exposure, and on a day bad enough
+    #    to trip the breaker, closing a losing position is a decision the model
+    #    must still be able to make.
     breaker = abs(circuit_breaker_loss_pct)
-    if action in ("buy", "sell") and today_realized_loss_pct <= -breaker:
+    if action == "buy" and today_realized_loss_pct <= -breaker:
         reasons.append(
             f"circuit breaker: today's realised P&L {today_realized_loss_pct:.2f}% is at or "
             f"beyond the -{breaker:.2f}% daily limit"

@@ -20,8 +20,9 @@ from __future__ import annotations
 
 import math
 import os
+import time
 from datetime import datetime
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
@@ -45,6 +46,14 @@ HTTP_TIMEOUT = 20.0
 # attached (a notional/fractional equity entry). main.py registers these in the
 # ledger so the per-cycle sweep can close them.
 MANAGED_EXIT_MARKER = "[managed-exit]"
+
+# A bracket's exit legs hold the position's shares, so Alpaca rejects a separate
+# market sell for them ("insufficient qty available"). Before a live equity sell
+# the legs are cancelled, and cancellation is asynchronous: poll until each leg
+# reports a terminal status, and never send the sell while one is still live.
+CANCEL_CONFIRM_ATTEMPTS = 10
+CANCEL_CONFIRM_INTERVAL_SECONDS = 0.5
+TERMINAL_ORDER_STATUSES = {"filled", "canceled", "expired", "rejected", "replaced", "done_for_day"}
 
 
 def needs_managed_exit(result: ExecutionResult) -> bool:
@@ -207,6 +216,175 @@ def fetch_live_equity(fallback: float) -> float:
     return fallback if equity is None else equity
 
 
+def read_live_cash() -> Optional[float]:
+    """Cash a new buy can actually spend, or None if it could not be read.
+
+    The smaller of `cash` and `non_marginable_buying_power` -- the project never
+    uses margin, and crypto buys are limited by the latter anyway.
+    """
+    key, secret = _alpaca_credentials()
+    if not (key and secret):
+        return None
+    try:
+        resp = requests.get(
+            f"{ALPACA_BASE_URL}/v2/account", headers=_alpaca_headers(), timeout=HTTP_TIMEOUT
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception:
+        return None
+    values = []
+    for field_name in ("cash", "non_marginable_buying_power"):
+        try:
+            value = float(data[field_name])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if math.isfinite(value):
+            values.append(value)
+    return min(values) if values else None
+
+
+# ----------------------------------------------------------- bracket exit legs
+
+
+def _open_exit_orders(symbol: str) -> List[Dict[str, Any]]:
+    """Every open sell order on `symbol` -- in practice a bracket's take-profit
+    and stop-loss legs. Raises on a broker failure: "no open orders" would let
+    the sell go out against shares the legs still hold."""
+    order_symbol = symbol_config.alpaca_position_symbol(symbol)
+    resp = requests.get(
+        f"{ALPACA_BASE_URL}/v2/orders",
+        headers=_alpaca_headers(),
+        params={"status": "open", "symbols": order_symbol, "nested": "true", "limit": 500},
+        timeout=HTTP_TIMEOUT,
+    )
+    resp.raise_for_status()
+    found: Dict[str, Dict[str, Any]] = {}
+    for order in resp.json() or []:
+        # nested=true rolls legs up under their parent; a flat listing returns
+        # them as top-level rows. Accept either shape.
+        for row in [order] + list(order.get("legs") or []):
+            if (
+                row.get("id")
+                and row.get("side") == "sell"
+                and str(row.get("symbol", order_symbol)).upper() == order_symbol.upper()
+                and row.get("status") not in TERMINAL_ORDER_STATUSES
+            ):
+                found[str(row["id"])] = row
+    return list(found.values())
+
+
+def fetch_bracket_exit_fills(after_iso: str) -> List[Dict[str, Any]]:
+    """Every bracket exit leg that has filled, for brackets submitted after `after_iso`.
+
+    A whole-share entry carries its stop and target at the broker, so when one
+    of them fills no code of ours runs -- this is how those exits are found.
+    `after` filters on the parent's submission time, not the leg's fill time,
+    so the caller passes a window wide enough to cover the longest hold.
+    Raises on a broker failure; the caller decides what that means.
+
+    Each item: leg_id, symbol, kind ("take_profit" | "stop_loss"), qty,
+    entry_price, exit_price, filled_at (ISO).
+    """
+    out: List[Dict[str, Any]] = []
+    cursor = after_iso
+    for _page in range(20):  # 20 x 500 orders is far beyond this account's volume
+        resp = requests.get(
+            f"{ALPACA_BASE_URL}/v2/orders",
+            headers=_alpaca_headers(),
+            params={"status": "closed", "nested": "true", "direction": "asc",
+                    "limit": 500, "after": cursor},
+            timeout=HTTP_TIMEOUT,
+        )
+        resp.raise_for_status()
+        orders = resp.json() or []
+        for parent in orders:
+            if parent.get("order_class") != "bracket" or parent.get("side") != "buy":
+                continue
+            try:
+                entry = float(parent.get("filled_avg_price") or 0.0)
+            except (TypeError, ValueError):
+                continue
+            if entry <= 0:
+                continue
+            for leg in parent.get("legs") or []:
+                try:
+                    qty = float(leg.get("filled_qty") or 0.0)
+                    exit_price = float(leg.get("filled_avg_price") or 0.0)
+                except (TypeError, ValueError):
+                    continue
+                # Terminal only: a partially filled leg that is still working
+                # would be booked now and its remainder never.
+                if (
+                    qty <= 0 or exit_price <= 0 or not leg.get("id") or not leg.get("filled_at")
+                    or leg.get("status") not in TERMINAL_ORDER_STATUSES
+                ):
+                    continue
+                out.append({
+                    "leg_id": str(leg["id"]),
+                    "symbol": symbol_config.from_alpaca_symbol(
+                        str(parent.get("symbol", "")), str(parent.get("asset_class", ""))
+                    ),
+                    "kind": "take_profit" if leg.get("type") == "limit" else "stop_loss",
+                    "qty": qty,
+                    "entry_price": entry,
+                    "exit_price": exit_price,
+                    "filled_at": str(leg["filled_at"]),
+                })
+        if len(orders) < 500:
+            break
+        cursor = str(orders[-1].get("submitted_at") or "")
+        if not cursor:
+            break
+    return out
+
+
+def cancel_exit_orders(symbol: str) -> Tuple[bool, bool, str]:
+    """Cancel `symbol`'s open exit legs and wait for Alpaca to confirm.
+
+    Returns (ok, leg_filled, message). ok=False means a leg is still live and
+    the caller must not sell. leg_filled=True means a leg filled before the
+    cancel landed, so the broker already sold some or all of the position.
+    """
+    orders = _open_exit_orders(symbol)
+    if not orders:
+        return True, False, "no open exit orders"
+
+    for order in orders:
+        # 204 on success; 422 when the order is already filled/cancelled, which
+        # the status poll below sorts out.
+        requests.delete(
+            f"{ALPACA_BASE_URL}/v2/orders/{order['id']}",
+            headers=_alpaca_headers(),
+            timeout=HTTP_TIMEOUT,
+        )
+
+    pending = {str(o["id"]) for o in orders}
+    leg_filled = False
+    for attempt in range(CANCEL_CONFIRM_ATTEMPTS):
+        for order_id in sorted(pending):
+            resp = requests.get(
+                f"{ALPACA_BASE_URL}/v2/orders/{order_id}",
+                headers=_alpaca_headers(),
+                timeout=HTTP_TIMEOUT,
+            )
+            resp.raise_for_status()
+            data = resp.json() or {}
+            status = str(data.get("status", ""))
+            if status in TERMINAL_ORDER_STATUSES:
+                pending.discard(order_id)
+                if float(data.get("filled_qty") or 0.0) > 0:
+                    leg_filled = True
+        if not pending:
+            return True, leg_filled, f"cancelled {len(orders)} exit order(s)"
+        if attempt < CANCEL_CONFIRM_ATTEMPTS - 1:
+            time.sleep(CANCEL_CONFIRM_INTERVAL_SECONDS)
+
+    return False, leg_filled, (
+        f"{len(pending)} exit order(s) still open after cancelling; sell not sent"
+    )
+
+
 # ------------------------------------------------------------------- guardrails
 
 
@@ -249,12 +427,23 @@ def _stop_limit_price(stop_price: float, exit_side: str) -> float:
 # --------------------------------------------------------------------- equities
 
 
+def _buy_budget(equity: float, size_pct: float, cash_available: Optional[float]) -> float:
+    """Dollars for a new long: the risk-sized share of equity, never more than
+    the cash left. Equity counts open positions, so sizing off it alone let
+    several buys in one cycle add up to more cash than the account holds."""
+    budget = equity * (size_pct / 100.0)
+    if cash_available is not None:
+        budget = min(budget, max(float(cash_available), 0.0))
+    return budget
+
+
 def _execute_equity(
     signal: TradeSignal,
     current_price: float,
     live_equity: float,
     is_live: bool,
     existing_position: Optional[ExistingPosition],
+    cash_available: Optional[float] = None,
 ) -> ExecutionResult:
     key, secret = _alpaca_credentials()
 
@@ -288,6 +477,20 @@ def _execute_equity(
         # sell an amount unrelated to the position.
         assert existing_position is not None  # guaranteed by _guard
         qty = existing_position.qty
+        if is_live:
+            ok, leg_filled, cancel_note = cancel_exit_orders(signal.symbol)
+            if not ok:
+                return ExecutionResult(status="error", message=f"{signal.symbol}: {cancel_note}")
+            if leg_filled:
+                # A leg beat the cancel: the broker sold some or all of it already
+                # (reconcile_bracket_exits books that P&L). Sell only what is left.
+                remaining = _fetch_alpaca_position(signal.symbol)
+                if remaining is None:
+                    return ExecutionResult(
+                        status="skipped",
+                        message=f"{signal.symbol}: a bracket exit filled first; position already closed",
+                    )
+                qty = remaining.qty
         body: Dict[str, Any] = {
             "symbol": signal.symbol,
             "side": "sell",
@@ -308,7 +511,7 @@ def _execute_equity(
         )
 
     # --- buy ---------------------------------------------------------------
-    budget_usd = live_equity * (signal.position_size_pct / 100.0)
+    budget_usd = _buy_budget(live_equity, signal.position_size_pct, cash_available)
     whole_shares = math.floor(budget_usd / current_price) if current_price > 0 else 0
 
     if whole_shares >= 1:
@@ -381,6 +584,7 @@ def _execute_crypto(
     live_equity: float,
     is_live: bool,
     existing_position: Optional[ExistingPosition],
+    cash_available: Optional[float] = None,
 ) -> ExecutionResult:
     """Spot crypto on Alpaca. 24/7, so no market-hours gate; no bracket legs exist
     for crypto orders, so every entry is marked for a bot-managed exit.
@@ -425,7 +629,7 @@ def _execute_crypto(
             note=f"close {qty:g} {signal.symbol}",
         )
 
-    budget_usd = live_equity * (signal.position_size_pct / 100.0)
+    budget_usd = _buy_budget(live_equity, signal.position_size_pct, cash_available)
     if budget_usd < ALPACA_MIN_NOTIONAL_USD:
         return ExecutionResult(
             status="skipped",
@@ -522,6 +726,7 @@ def execute_trade(
     live_equity: float,
     is_live: bool,
     existing_position: Optional[ExistingPosition] = None,
+    cash_available: Optional[float] = None,
 ) -> ExecutionResult:
     """Route one signal to Alpaca, with `.message` guaranteed secret-free.
 
@@ -536,7 +741,7 @@ def execute_trade(
     first place.
     """
     result = _execute_trade(
-        signal, current_price, live_equity, is_live, existing_position
+        signal, current_price, live_equity, is_live, existing_position, cash_available
     )
     if result.message:
         result = result.model_copy(update={"message": sanitize(result.message)})
@@ -549,8 +754,12 @@ def _execute_trade(
     live_equity: float,
     is_live: bool,
     existing_position: Optional[ExistingPosition] = None,
+    cash_available: Optional[float] = None,
 ) -> ExecutionResult:
     """Route one signal to Alpaca.
+
+    `cash_available` caps a buy's budget (see _buy_budget); None leaves the
+    equity-based size alone.
 
     Wrapped end to end: a catastrophic failure on one symbol returns an error
     result for that symbol and never takes the rest of the cycle down with it.
@@ -561,10 +770,10 @@ def _execute_trade(
 
         if symbol_config.is_crypto(signal.symbol):
             return _execute_crypto(
-                signal, current_price, live_equity, is_live, existing_position
+                signal, current_price, live_equity, is_live, existing_position, cash_available
             )
         return _execute_equity(
-            signal, current_price, live_equity, is_live, existing_position
+            signal, current_price, live_equity, is_live, existing_position, cash_available
         )
     except Exception as exc:  # noqa: BLE001 - one symbol must not kill the cycle
         return ExecutionResult(

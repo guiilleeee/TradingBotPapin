@@ -67,6 +67,18 @@ CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+-- Live bracket exit legs already booked into pnl, so a leg is never booked twice.
+CREATE TABLE IF NOT EXISTS broker_exits (
+    leg_order_id     TEXT PRIMARY KEY,
+    symbol           TEXT NOT NULL,
+    kind             TEXT NOT NULL,
+    filled_at        TEXT NOT NULL,
+    qty              REAL NOT NULL,
+    entry_price      REAL NOT NULL,
+    exit_price       REAL NOT NULL,
+    realized_pnl_usd REAL NOT NULL
+);
 """
 
 EQUITY_CURVE_START_KEY = "equity_curve_start"
@@ -218,8 +230,11 @@ class BotLogger:
         equity: float,
         is_live: Optional[bool] = None,
         entry_price: Optional[float] = None,
+        timestamp: Optional[str] = None,
     ) -> int:
         """Write a synthetic signal row for a stop-loss / take-profit auto-close.
+
+        `timestamp` defaults to now; a broker-side exit found later passes its fill time.
 
         The dashboard renders every row through one code path, so these blobs must
         carry the same keys a model-driven row does. Two in particular:
@@ -265,7 +280,7 @@ class BotLogger:
                 "final_signal, override_reason, execution_result, is_live) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
-                    utc_now_iso(),
+                    timestamp or utc_now_iso(),
                     symbol,
                     json.dumps(signal_input),
                     json.dumps(decision),
@@ -403,18 +418,47 @@ class BotLogger:
 
     # ---------------------------------------------------------------------- pnl
 
-    def record_pnl(self, symbol: str, amount: float) -> None:
+    def record_pnl(self, symbol: str, amount: float, timestamp: Optional[str] = None) -> None:
         """Book a realised P&L amount.
 
         Must be called on every close, live and simulated. An earlier build defined
         this method and never invoked it anywhere, which left the circuit breaker
         permanently inert: get_today_realized_loss_pct always summed an empty table.
+
+        `timestamp` is when the close actually happened, for a close discovered
+        after the fact (a broker-side bracket exit); it decides which UTC day's
+        circuit breaker the amount counts toward. Defaults to now.
         """
         with self._conn() as conn:
             conn.execute(
                 "INSERT INTO pnl (timestamp, symbol, realized_pnl_usd) VALUES (?, ?, ?)",
-                (utc_now_iso(), symbol, float(amount)),
+                (timestamp or utc_now_iso(), symbol, float(amount)),
             )
+
+    def record_broker_exit(self, fill: Dict[str, Any]) -> Optional[float]:
+        """Book one filled bracket leg (execution.fetch_bracket_exit_fills item).
+
+        Returns the realised P&L if this leg was new, or None if it was already
+        booked. The dedupe row and the pnl row go in one transaction, so a crash
+        between them can neither lose the loss nor count it twice.
+        """
+        pnl = (float(fill["exit_price"]) - float(fill["entry_price"])) * float(fill["qty"])
+        filled_at = parse_utc(fill["filled_at"])
+        stamp = filled_at.isoformat() if filled_at else utc_now_iso()
+        with self._conn() as conn:
+            cur = conn.execute(
+                "INSERT OR IGNORE INTO broker_exits (leg_order_id, symbol, kind, filled_at, qty, "
+                "entry_price, exit_price, realized_pnl_usd) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (fill["leg_id"], fill["symbol"], fill["kind"], stamp, float(fill["qty"]),
+                 float(fill["entry_price"]), float(fill["exit_price"]), pnl),
+            )
+            if cur.rowcount == 0:
+                return None
+            conn.execute(
+                "INSERT INTO pnl (timestamp, symbol, realized_pnl_usd) VALUES (?, ?, ?)",
+                (stamp, fill["symbol"], pnl),
+            )
+        return pnl
 
     def get_today_realized_loss_pct(self, equity: float) -> float:
         """Today's realised P&L as a percent of equity. Negative means a loss.

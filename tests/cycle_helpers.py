@@ -57,9 +57,10 @@ def record_executions(monkeypatch):
 
     calls = []
 
-    def fake_execute(signal, current_price, live_equity, is_live, existing_position=None):
+    def fake_execute(signal, current_price, live_equity, is_live, existing_position=None,
+                     cash_available=None):
         calls.append({"signal": signal, "price": current_price, "is_live": is_live,
-                      "existing_position": existing_position})
+                      "existing_position": existing_position, "cash_available": cash_available})
         return ExecutionResult(status="dry_run", message="[test]", qty=1.0, fill_price=current_price)
 
     monkeypatch.setattr(execution, "execute_trade", fake_execute)

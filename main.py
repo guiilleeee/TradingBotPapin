@@ -21,6 +21,7 @@ import os
 import sys
 import traceback
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import benchmark
@@ -177,6 +178,87 @@ class CircuitBreakerTracker:
             return
         notifications.send_circuit_breaker_alert(is_live, today_loss_pct, threshold_pct)
         self.alerted_this_cycle = True
+
+
+@dataclass
+class CycleBook:
+    """What this cycle has left to spend, kept current as orders fill.
+
+    `cash` None means it could not be read; buys then fall back to equity-only
+    sizing and the broker's own buying-power check is the backstop.
+    """
+
+    cash: Optional[float] = None
+
+    def note_fill(self, action: str, qty: Optional[float], price: float) -> None:
+        if self.cash is None or not qty:
+            return
+        amount = float(qty) * float(price)
+        self.cash += -amount if action == "buy" else amount
+
+
+# Brackets are matched by their parent's submission time, so this must cover the
+# longest a bracketed position is ever held.
+BRACKET_RECONCILE_LOOKBACK_DAYS = 90
+# A broker exit discovered later than this is booked and logged, but not alerted
+# (the first run after deploy would otherwise replay months of exits to Telegram).
+BRACKET_EXIT_ALERT_WINDOW = timedelta(hours=24)
+
+
+def reconcile_bracket_exits(bot_logger: BotLogger, equity: float) -> List[Closure]:
+    """Book every live bracket leg the broker filled since we last looked.
+
+    A whole-share entry's stop and target live at Alpaca, so a stop-out there
+    runs none of our code. Without this the loss never reached the pnl table and
+    the circuit breaker could not see the most common way a live trade loses.
+    Each leg is booked once (BotLogger.record_broker_exit dedupes on its id), at
+    its real fill time, so it counts toward the UTC day it actually happened.
+    """
+    after = (datetime.now(timezone.utc) - timedelta(days=BRACKET_RECONCILE_LOOKBACK_DAYS)).isoformat()
+    try:
+        fills = execution.fetch_bracket_exit_fills(after)
+    except Exception as exc:  # noqa: BLE001 - the next cycle retries; nothing is lost
+        print(f"  [reconcile] broker order history unavailable ({type(exc).__name__}: {exc})")
+        return []
+
+    booked: List[Closure] = []
+    now = datetime.now(timezone.utc)
+    for fill in fills:
+        pnl = bot_logger.record_broker_exit(fill)
+        if pnl is None:
+            continue
+        label = "Take-profit" if fill["kind"] == "take_profit" else "Stop-loss"
+        reason = (
+            f"{label} executat pel broker a {fill['exit_price']:.6g} "
+            f"(entrada {fill['entry_price']:.6g}). Posicio tancada per l'ordre bracket."
+        )
+        filled_at = parse_utc(fill["filled_at"])
+        bot_logger.log_auto_close_signal(
+            symbol=fill["symbol"], reason=reason, price=fill["exit_price"], qty=fill["qty"],
+            pnl=pnl, equity=equity, is_live=True, entry_price=fill["entry_price"],
+            timestamp=filled_at.isoformat() if filled_at else None,
+        )
+        if filled_at is not None and now - filled_at <= BRACKET_EXIT_ALERT_WINDOW:
+            notifications.send_auto_close_alert(True, fill["symbol"], fill["qty"], fill["exit_price"])
+        booked.append(Closure(symbol=fill["symbol"], reason=reason, price=fill["exit_price"],
+                              qty=fill["qty"], pnl=pnl, entry_price=fill["entry_price"]))
+        print(f"  [reconcile] {fill['symbol']}: bracket {fill['kind']} filled at "
+              f"{fill['exit_price']:.6g}, P&L {pnl:+.2f} USD booked")
+    return booked
+
+
+def available_cash(bot_logger: BotLogger, is_live: bool, fallback_equity: float) -> Optional[float]:
+    """Spendable cash right now. Live asks Alpaca; simulation derives it from
+    the ledger: starting equity plus everything realised, minus the cost of
+    what is still open."""
+    if is_live:
+        return execution.read_live_cash()
+    open_cost = sum(
+        float(r["qty"]) * float(r["avg_entry_price"])
+        for r in bot_logger.get_all_simulated_positions()
+        if float(r["qty"]) > 0
+    )
+    return fallback_equity + bot_logger.get_all_time_realized_pnl() - open_cost
 
 
 def sweep_open_positions(
@@ -353,6 +435,17 @@ def _run_cycle_body(
 
     equity = max(equity, 0.01)  # keep downstream gt=0 validators satisfiable
 
+    # The breaker's state as of *before* any symbol in this cycle is processed,
+    # and before this cycle books any broker-side exit -- so a stop-out found
+    # just now that trips the breaker still counts as the transition and alerts.
+    breaker_tracker = CircuitBreakerTracker(
+        already_tripped_at_cycle_start=(
+            bot_logger.get_today_realized_loss_pct(equity) <= -abs(circuit_breaker_loss_pct)
+        )
+    )
+    if is_live:
+        reconcile_bracket_exits(bot_logger, equity)
+
     for closure in sweep.closures:
         bot_logger.log_auto_close_signal(
             symbol=closure.symbol,
@@ -375,15 +468,11 @@ def _run_cycle_body(
     except Exception as exc:  # noqa: BLE001 - dashboard data never fails a cycle
         print(f"benchmark snapshot failed (non-fatal): {type(exc).__name__}: {exc}")
 
-    # The breaker's state as of *before* any symbol in this cycle is processed.
-    # Passed into _process_symbol via the tracker so the alert fires exactly
-    # once, on the transition into the tripped state -- never for a breaker
-    # already tripped entering this cycle, never once per symbol afterward.
-    breaker_tracker = CircuitBreakerTracker(
-        already_tripped_at_cycle_start=(
-            bot_logger.get_today_realized_loss_pct(equity) <= -abs(circuit_breaker_loss_pct)
-        )
-    )
+    # breaker_tracker (above) goes into _process_symbol so the breaker alert
+    # fires exactly once, on the transition into the tripped state -- never for
+    # a breaker already tripped entering this cycle, never once per symbol after.
+    book = CycleBook(cash=available_cash(bot_logger, is_live, fallback_equity))
+    print("Cash available: " + ("unknown" if book.cash is None else f"${book.cash:,.2f}"))
 
     # --- per symbol -------------------------------------------------------
     configured_symbols = config.get("symbols", []) or []
@@ -436,6 +525,7 @@ def _run_cycle_body(
                 max_absolute_position_pct=max_absolute_position_pct,
                 min_reward_risk_ratio=min_reward_risk_ratio,
                 breaker_tracker=breaker_tracker,
+                book=book,
                 # A pre-filter promotion is tagged "prefilter" on its own row.
                 trigger_reason=(entry.get("trigger_reason") if isinstance(entry, dict) else None)
                 or trigger_reason,
@@ -604,8 +694,10 @@ def _process_symbol(
     min_reward_risk_ratio: float,
     breaker_tracker: CircuitBreakerTracker,
     trigger_reason: str = "scheduled",
+    book: Optional[CycleBook] = None,
 ) -> None:
     is_live = settings.is_live
+    book = book or CycleBook()
     max_absolute_position_pct = symbol_config.max_position_pct(
         config, symbol, max_absolute_position_pct
     )
@@ -632,11 +724,16 @@ def _process_symbol(
     # the breaker for the symbols that follow.
     today_loss_pct = bot_logger.get_today_realized_loss_pct(equity)
 
-    if today_loss_pct <= -abs(circuit_breaker_loss_pct):
-        # Breaker is already tripped, so skip the model call entirely -- there is
-        # no decision it could return that we would act on, and it costs money.
+    breaker_tripped = today_loss_pct <= -abs(circuit_breaker_loss_pct)
+    if breaker_tripped:
         # The alert itself only actually sends once -- see CircuitBreakerTracker.
         breaker_tracker.note_tripped(is_live, today_loss_pct, circuit_breaker_loss_pct)
+
+    if breaker_tripped and existing_position is None:
+        # A tripped breaker blocks new buys only. With nothing held there is no
+        # sell to make either, so skip the model call -- it costs money and no
+        # answer it gives could be acted on. A held symbol still goes to the
+        # model: cutting a loser is exactly what a bad day may call for.
         blocked = TradeSignal(
             symbol=symbol,
             action="hold",
@@ -679,6 +776,7 @@ def _process_symbol(
             live_equity=equity,
             is_live=is_live,
             existing_position=existing_position,
+            cash_available=book.cash,
         )
 
     bot_logger.log_signal(symbol, signal_input, raw, final, exec_result, is_live=is_live, trigger_reason=trigger_reason)
@@ -689,6 +787,7 @@ def _process_symbol(
             bot_logger.record_pnl(symbol, float(exec_result.realized_pnl_usd))
 
         _update_ledger(bot_logger, final, exec_result, current_price, is_live)
+        book.note_fill(final.action, exec_result.qty, float(exec_result.fill_price or current_price))
 
         notifications.send_trade_alert(
             is_live=is_live,

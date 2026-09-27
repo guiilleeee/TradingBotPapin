@@ -19,8 +19,10 @@ fallback_equity_usd: 1000.0
 # Alpaca balance at or above this -- the account's first real deposit. Set once.
 funding_threshold_usd: 10.0
 
-# Halt trading for the rest of the UTC day once today's realised loss reaches this
-# percentage of equity.
+# Block new buys for the rest of the UTC day once today's realised loss reaches
+# this percentage of equity. Sells stay allowed (the model can still cut a loser),
+# and trading resumes by itself at 00:00 UTC. Live bracket stop-outs at the broker
+# count too: each cycle books them from Alpaca's order history first.
 circuit_breaker_loss_pct: 3.0
 
 # Percent of equity to risk per trade. Position size is derived from this and the

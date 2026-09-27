@@ -195,6 +195,8 @@ def capture_alpaca(monkeypatch):
         return FakeResponse({"id": "order-1", "filled_avg_price": "100.5", "filled_qty": "10"})
 
     monkeypatch.setattr(execution.requests, "post", fake_post)
+    # A live sell first lists the symbol's open exit orders; none here.
+    monkeypatch.setattr(execution.requests, "get", lambda *a, **kw: FakeResponse([]))
     return sent
 
 
@@ -468,6 +470,7 @@ def test_live_close_books_pnl_from_the_actual_fill(monkeypatch):
         "post",
         lambda *a, **kw: FakeResponse({"id": "o", "filled_avg_price": "97.0", "filled_qty": "4"}),
     )
+    monkeypatch.setattr(execution.requests, "get", lambda *a, **kw: FakeResponse([]))
 
     held = ExistingPosition(qty=4.0, avg_entry_price=100.0)
     result = execution.execute_trade(
