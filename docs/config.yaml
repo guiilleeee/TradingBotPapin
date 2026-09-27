@@ -15,6 +15,10 @@ benchmark_path: benchmark.json
 # Starting equity for simulation, and the fallback if live balances cannot be read.
 fallback_equity_usd: 1000.0
 
+# The dashboard's equity curve (live) starts at the first successfully read
+# Alpaca balance at or above this -- the account's first real deposit. Set once.
+funding_threshold_usd: 10.0
+
 # Halt trading for the rest of the UTC day once today's realised loss reaches this
 # percentage of equity.
 circuit_breaker_loss_pct: 3.0
