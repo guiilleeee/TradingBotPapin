@@ -173,6 +173,71 @@ def test_a_failing_push_service_never_raises(tmp_path, push_env, keys, caplog):
     assert keys["vapid_private_key"] not in caplog.text
 
 
+# ------------------------------------------------------------ the sub claim
+
+
+@pytest.mark.parametrize("email,expected", [
+    ("admin@example.com", "mailto:admin@example.com"),
+    ("  mailto:admin@example.com ", "mailto:admin@example.com"),
+    ("", web_push.DEFAULT_SUBJECT),
+    ("not-an-email", web_push.DEFAULT_SUBJECT),
+    ("a@b", web_push.DEFAULT_SUBJECT),
+])
+def test_the_sub_claim_is_mailto_the_admin_email(monkeypatch, email, expected):
+    monkeypatch.setenv("VAPID_ADMIN_EMAIL", email)
+    assert web_push.vapid_subject() == expected
+
+
+@pytest.mark.parametrize("email", ["admin@example.com", ""])
+def test_every_subject_we_produce_passes_pywebpush_signing(monkeypatch, keys, email):
+    """The bug this pins: a sub like https://host/path is rejected by py_vapid
+    ("Missing 'sub' from claims"), so every push failed."""
+    from py_vapid import Vapid02
+
+    monkeypatch.setenv("VAPID_ADMIN_EMAIL", email)
+    claims = {"sub": web_push.vapid_subject(), "aud": "https://fcm.googleapis.com"}
+    headers = Vapid02.from_string(keys["vapid_private_key"]).sign(claims)
+    assert headers["Authorization"].startswith("vapid ")
+
+
+def _browser_subscription():
+    """A subscription with real keys, as a browser would create it."""
+    import base64
+    import os as _os
+
+    from cryptography.hazmat.primitives import serialization as ser
+    from cryptography.hazmat.primitives.asymmetric import ec as _ec
+
+    point = _ec.generate_private_key(_ec.SECP256R1()).public_key().public_bytes(
+        ser.Encoding.X962, ser.PublicFormat.UncompressedPoint)
+    b64 = lambda b: base64.urlsafe_b64encode(b).rstrip(b"=").decode()  # noqa: E731
+    return {"endpoint": "https://fcm.googleapis.com/fcm/send/real-path",
+            "keys": {"p256dh": b64(point), "auth": b64(_os.urandom(16))}}
+
+
+@pytest.mark.parametrize("email", ["admin@example.com", ""])
+def test_a_real_pywebpush_send_is_signed_and_encrypted(tmp_path, push_env, monkeypatch, keys, email):
+    """End to end through the real pywebpush.webpush -- only the HTTP call is faked."""
+    import pywebpush
+
+    monkeypatch.setenv("VAPID_ADMIN_EMAIL", email)
+    posted = []
+
+    class Session:
+        def post(self, url, data=None, headers=None, timeout=None):
+            posted.append({"url": url, "headers": headers, "bytes": len(data or b"")})
+            return type("Resp", (), {"status_code": 201, "text": "", "headers": {}})()
+
+    path = _store(tmp_path, [web_push.encrypt_subscription(_browser_subscription(), keys["subscription_public_key"])])
+    sender = lambda **kw: pywebpush.webpush(**kw, requests_session=Session())  # noqa: E731
+    assert web_push.send_to_all("TradingBot Papin", "BUY 10 AAPL @ $182.30", store_path=path,
+                                dead_path=str(tmp_path / "d.json"), sender=sender) == 1
+    sent = posted[0]
+    assert sent["url"] == "https://fcm.googleapis.com/fcm/send/real-path"
+    assert sent["headers"]["Authorization"].startswith("vapid t=")
+    assert sent["headers"]["content-encoding"] == "aes128gcm" and sent["bytes"] > 0
+
+
 # ------------------------------------------------------------------ alerts
 
 

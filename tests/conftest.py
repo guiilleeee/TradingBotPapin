@@ -24,6 +24,7 @@ def no_real_telegram(monkeypatch):
     # Same for Web Push: without these, web_push.send_to_all is a no-op.
     monkeypatch.delenv("VAPID_PRIVATE_KEY", raising=False)
     monkeypatch.delenv("PUSH_SUBSCRIPTION_KEY", raising=False)
+    monkeypatch.delenv("VAPID_ADMIN_EMAIL", raising=False)
 
 
 @pytest.fixture(autouse=True)

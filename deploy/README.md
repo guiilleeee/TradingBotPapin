@@ -91,6 +91,7 @@ sudo -u tradingbot .venv/bin/python web_push.py setup
 # -> writes docs/push_config.json (public keys) and prints two lines:
 #    VAPID_PRIVATE_KEY=...   PUSH_SUBSCRIPTION_KEY=...
 sudo -u tradingbot nano .env        # paste both lines; never commit them
+                                    # and set VAPID_ADMIN_EMAIL=you@example.com
 sudo -u tradingbot git add docs/push_config.json
 sudo -u tradingbot git commit -m "Enable web push" && sudo -u tradingbot git push
 ```
@@ -103,8 +104,11 @@ read it). Test it: `sudo -u tradingbot .venv/bin/python web_push.py test`.
 - **iPhone/iPad:** first add the dashboard to the home screen (Share > Add to
   Home Screen, iOS 16.4+) and open it from there; Safari tabs can't receive pushes.
 - **Desktop:** the browser has to be running to show them.
-- For manual GitHub Actions runs to push too, add both values as repository
-  secrets with the same names.
+- `VAPID_ADMIN_EMAIL` is the contact the push services (Google, Mozilla,
+  Apple) may use about your pushes; it goes out as `mailto:<email>`. Left empty,
+  the bot uses `https://guiilleeee.github.io` instead.
+- For manual GitHub Actions runs to push too, add `VAPID_PRIVATE_KEY`,
+  `PUSH_SUBSCRIPTION_KEY` and `VAPID_ADMIN_EMAIL` as repository secrets.
 - Running `setup` again makes new keys: every device then has to tap the bell again.
 
 ### 4. Let the server push (only if `PUBLISH=1`)

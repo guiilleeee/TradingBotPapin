@@ -62,6 +62,7 @@ jobs:
           # Web Push (web_push.py); a no-op with these unset.
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
           PUSH_SUBSCRIPTION_KEY: ${{ secrets.PUSH_SUBSCRIPTION_KEY }}
+          VAPID_ADMIN_EMAIL: ${{ secrets.VAPID_ADMIN_EMAIL }}
         run: |
           python main.py --config config.yaml \
             --trigger-symbols "$SYMBOL" \

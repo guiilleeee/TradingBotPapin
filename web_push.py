@@ -42,7 +42,11 @@ from secrets_redaction import sanitize
 SUBSCRIPTIONS_PATH = os.path.join("docs", "push_subscriptions.json")
 CONFIG_PATH = os.path.join("docs", "push_config.json")
 DEAD_PATH = "push_dead.json"
-DEFAULT_SUBJECT = "https://guiilleeee.github.io/TradingBotPapin/"
+# VAPID's `sub` claim: "mailto:<VAPID_ADMIN_EMAIL>", or this origin if unset.
+# pywebpush only accepts a mailto: address or a bare https:// origin -- a URL
+# with a path (e.g. the dashboard's /TradingBotPapin/) is rejected outright.
+DEFAULT_SUBJECT = "https://guiilleeee.github.io"
+_EMAIL_RE = re.compile(r"^[^@\s:/]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$")
 MAX_SUBSCRIPTIONS = 20
 PUSH_TTL_SECONDS = 3600
 HTTP_TIMEOUT = 10.0
@@ -193,11 +197,22 @@ def write_store(subs: List[Dict[str, Any]], path: str = SUBSCRIPTIONS_PATH) -> N
 # --------------------------------------------------------------- sending
 
 
+def vapid_subject() -> str:
+    """The `sub` claim: mailto: the admin email if it's set and well-formed."""
+    email = (os.environ.get("VAPID_ADMIN_EMAIL") or "").strip()
+    if email.lower().startswith("mailto:"):
+        email = email[len("mailto:"):]
+    if email and _EMAIL_RE.match(email):
+        return f"mailto:{email}"
+    if email:
+        logging.error("VAPID_ADMIN_EMAIL is not a valid email address; using the default subject")
+    return DEFAULT_SUBJECT
+
+
 def settings() -> tuple[Optional[str], Optional[str], str]:
     vapid = (os.environ.get("VAPID_PRIVATE_KEY") or "").strip() or None
     sub_key = (os.environ.get("PUSH_SUBSCRIPTION_KEY") or "").strip() or None
-    subject = (os.environ.get("VAPID_SUBJECT") or "").strip() or DEFAULT_SUBJECT
-    return vapid, sub_key, subject
+    return vapid, sub_key, vapid_subject()
 
 
 def configured() -> bool:
