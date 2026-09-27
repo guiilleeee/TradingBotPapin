@@ -309,12 +309,12 @@ def test_simulated_cash_subtracts_the_cost_of_open_positions(tmp_logger):
 
 def test_cycle_book_spends_on_buys_and_frees_on_sells():
     book = main.CycleBook(cash=1000.0)
-    book.note_fill("buy", 3, 100.0)
+    book.note_fill("AAPL", "buy", 3, 100.0)
     assert book.cash == pytest.approx(700.0)
-    book.note_fill("sell", 1, 150.0)
+    book.note_fill("AAPL", "sell", 1, 150.0)
     assert book.cash == pytest.approx(850.0)
     unknown = main.CycleBook(cash=None)
-    unknown.note_fill("buy", 3, 100.0)
+    unknown.note_fill("AAPL", "buy", 3, 100.0)
     assert unknown.cash is None
 
 

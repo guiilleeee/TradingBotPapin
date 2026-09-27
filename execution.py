@@ -164,6 +164,31 @@ def fetch_all_live_positions() -> Dict[str, ExistingPosition]:
     return out
 
 
+def fetch_live_exposures() -> Dict[str, float]:
+    """Dollar exposure (market value) of every open Alpaca position, keyed like
+    fetch_all_live_positions. Raises on a broker failure."""
+    _require_credentials()
+    resp = requests.get(
+        f"{ALPACA_BASE_URL}/v2/positions",
+        headers=_alpaca_headers(),
+        timeout=HTTP_TIMEOUT,
+    )
+    resp.raise_for_status()
+    out: Dict[str, float] = {}
+    for row in resp.json() or []:
+        qty = float(row.get("qty", 0.0) or 0.0)
+        if qty <= 0:
+            continue
+        value = row.get("market_value")
+        if value in (None, ""):
+            value = qty * float(row.get("avg_entry_price", 0.0) or 0.0)
+        symbol = symbol_config.from_alpaca_symbol(
+            str(row.get("symbol", "")), str(row.get("asset_class", ""))
+        )
+        out[symbol] = abs(float(value))
+    return out
+
+
 def _fetch_alpaca_position(symbol: str) -> Optional[ExistingPosition]:
     """Live equity position, or None if Alpaca says there genuinely isn't one.
 
@@ -244,6 +269,13 @@ def read_live_cash() -> Optional[float]:
     return min(values) if values else None
 
 
+def _require_credentials() -> None:
+    """Fail fast, before any network call, when there is nothing to authenticate with."""
+    key, secret = _alpaca_credentials()
+    if not (key and secret):
+        raise RuntimeError("ALPACA_API_KEY / ALPACA_API_SECRET missing")
+
+
 # ----------------------------------------------------------- bracket exit legs
 
 
@@ -286,6 +318,7 @@ def fetch_bracket_exit_fills(after_iso: str) -> List[Dict[str, Any]]:
     Each item: leg_id, symbol, kind ("take_profit" | "stop_loss"), qty,
     entry_price, exit_price, filled_at (ISO).
     """
+    _require_credentials()
     out: List[Dict[str, Any]] = []
     cursor = after_iso
     for _page in range(20):  # 20 x 500 orders is far beyond this account's volume

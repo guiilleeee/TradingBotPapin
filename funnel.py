@@ -63,6 +63,16 @@ LOOKBACK_SESSIONS = 20
 MIN_BARS = LOOKBACK_SESSIONS + 3
 
 
+class FunnelData(dict):
+    """symbol -> metrics, exactly as before, plus `closes`: the same download's
+    daily closes per symbol. portfolio.py's correlation cap reads those, so it
+    costs no second fetch. A plain dict (e.g. a test fixture) simply has none."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.closes: Dict[str, pd.Series] = {}
+
+
 @dataclass
 class FunnelResult:
     held: List[str] = field(default_factory=list)
@@ -107,11 +117,11 @@ def metrics_from_frame(close: pd.Series, volume: pd.Series) -> Dict[str, float] 
     return {"volume_ratio": volume_ratio, "move_z": move_z, "last_return_pct": last_return * 100.0}
 
 
-def fetch_funnel_data(symbols: Sequence[str]) -> Dict[str, Dict[str, float]]:
+def fetch_funnel_data(symbols: Sequence[str]) -> "FunnelData":
     """One batched yfinance download for the whole universe. Never raises."""
     symbols = list(symbols)
     if not symbols:
-        return {}
+        return FunnelData()
     try:
         import yfinance as yf
 
@@ -126,22 +136,24 @@ def fetch_funnel_data(symbols: Sequence[str]) -> Dict[str, Dict[str, float]]:
         )
     except Exception as exc:  # noqa: BLE001
         print(f"  [funnel] price download failed ({type(exc).__name__}: {exc})")
-        return {}
+        return FunnelData()
     if df is None or df.empty:
-        return {}
+        return FunnelData()
 
     if not isinstance(df.columns, pd.MultiIndex):
         df = pd.concat([df], keys=symbols[:1], axis=1)
 
-    out: Dict[str, Dict[str, float]] = {}
+    out = FunnelData()
     present = {c[0] for c in df.columns}
     for symbol in symbols:
         if symbol not in present:
             continue
         try:
-            metrics = metrics_from_frame(df[symbol]["Close"], df[symbol]["Volume"])
+            close = df[symbol]["Close"]
+            metrics = metrics_from_frame(close, df[symbol]["Volume"])
         except Exception:  # noqa: BLE001 - one bad symbol never sinks the ranking
             continue
+        out.closes[symbol] = close.dropna().astype(float)
         if metrics is not None:
             out[symbol] = metrics
     return out

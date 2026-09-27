@@ -29,6 +29,7 @@ import data_fetcher
 import execution
 import funnel
 import notifications
+import portfolio
 import position_metrics
 import risk_manager
 import symbol_config
@@ -156,6 +157,8 @@ class SweepResult:
     closed_symbols: Set[str] = field(default_factory=set)
     closures: List[Closure] = field(default_factory=list)
     unrealized_pnl: float = 0.0
+    # Dollar value of each position the sweep left open (at cost if unpriced).
+    market_values: Dict[str, float] = field(default_factory=dict)
 
 
 @dataclass
@@ -182,19 +185,35 @@ class CircuitBreakerTracker:
 
 @dataclass
 class CycleBook:
-    """What this cycle has left to spend, kept current as orders fill.
+    """What this cycle holds and has left to spend, kept current as orders fill.
 
     `cash` None means it could not be read; buys then fall back to equity-only
     sizing and the broker's own buying-power check is the backstop.
+
+    `exposures` (symbol -> dollar value held) feeds portfolio.check_buy. None
+    means "not tracked" and skips the portfolio rules -- only callers that
+    predate them (tests) leave it unset. A cycle that tried and failed to read
+    the positions sets `portfolio_error` instead, and every buy is held.
+    `closes` are the funnel download's daily closes, for the correlation rule.
     """
 
     cash: Optional[float] = None
+    exposures: Optional[Dict[str, float]] = None
+    portfolio_error: Optional[str] = None
+    closes: Dict[str, Any] = field(default_factory=dict)
+    closes_tried: Set[str] = field(default_factory=set)
 
-    def note_fill(self, action: str, qty: Optional[float], price: float) -> None:
-        if self.cash is None or not qty:
+    def note_fill(self, symbol: str, action: str, qty: Optional[float], price: float) -> None:
+        if not qty:
             return
         amount = float(qty) * float(price)
-        self.cash += -amount if action == "buy" else amount
+        if self.cash is not None:
+            self.cash += -amount if action == "buy" else amount
+        if self.exposures is not None:
+            if action == "buy":
+                self.exposures[symbol] = self.exposures.get(symbol, 0.0) + amount
+            else:
+                self.exposures.pop(symbol, None)
 
 
 # Brackets are matched by their parent's submission time, so this must cover the
@@ -295,6 +314,7 @@ def sweep_open_positions(
         except Exception as exc:  # noqa: BLE001
             print(f"  [sweep] {symbol}: price unavailable ({exc}); leaving position open")
             result.unrealized_pnl += 0.0
+            result.market_values[symbol] = entry * qty
             continue
 
         # Long-only, so a stop is crossed from above and a target from below.
@@ -304,6 +324,7 @@ def sweep_open_positions(
 
         if not (hit_stop or hit_take):
             result.unrealized_pnl += (price - entry) * qty
+            result.market_values[symbol] = price * qty
             continue
 
         if hit_stop:
@@ -342,6 +363,7 @@ def sweep_open_positions(
             if exec_result.status != "success":
                 print(f"  [sweep] {symbol}: managed exit did not fill ({exec_result.message})")
                 result.unrealized_pnl += (price - entry) * qty
+                result.market_values[symbol] = price * qty
                 continue
             fill = float(exec_result.fill_price or price)
             qty = float(exec_result.qty or qty)
@@ -472,7 +494,10 @@ def _run_cycle_body(
     # fires exactly once, on the transition into the tripped state -- never for
     # a breaker already tripped entering this cycle, never once per symbol after.
     book = CycleBook(cash=available_cash(bot_logger, is_live, fallback_equity))
-    print("Cash available: " + ("unknown" if book.cash is None else f"${book.cash:,.2f}"))
+    _load_exposures(book, is_live, sweep)
+    print("Cash available: " + ("unknown" if book.cash is None else f"${book.cash:,.2f}")
+          + f" | open positions: {len(book.exposures or {})}"
+          + (f" | portfolio unknown: {book.portfolio_error}" if book.portfolio_error else ""))
 
     # --- per symbol -------------------------------------------------------
     configured_symbols = config.get("symbols", []) or []
@@ -503,7 +528,7 @@ def _run_cycle_body(
         if not configured_symbols:
             print(f"  No configured symbols match --trigger-symbols {trigger_symbols}")
     elif funnel.funnel_enabled(config):
-        configured_symbols = _funnel_symbols(config, configured_symbols, is_live, bot_logger)
+        configured_symbols = _funnel_symbols(config, configured_symbols, is_live, bot_logger, book)
 
     for entry in configured_symbols:
         symbol = entry["symbol"] if isinstance(entry, dict) else str(entry)
@@ -607,6 +632,7 @@ def _funnel_symbols(
     configured_symbols: List[Any],
     is_live: bool,
     bot_logger: BotLogger,
+    book: Optional[CycleBook] = None,
 ) -> List[Dict[str, Any]]:
     """Rank the universe locally (no LLM) and keep held + top-N. See funnel.py."""
     universe = [e["symbol"] if isinstance(e, dict) else str(e) for e in configured_symbols]
@@ -630,7 +656,14 @@ def _funnel_symbols(
         if s.upper() not in universe_upper and not symbol_config.is_crypto(s, config)
     ] if equities_open and prefilter_settings["enabled"] else []
 
-    data = funnel.fetch_funnel_data(universe + pool)
+    # Held symbols outside the universe ride along too: the portfolio
+    # correlation rule compares every candidate against every holding.
+    download = universe + pool
+    download += [s for s in held if s.upper() not in {d.upper() for d in download}]
+    data = funnel.fetch_funnel_data(download)
+    if book is not None:
+        book.closes.update(getattr(data, "closes", {}) or {})
+        book.closes_tried.update(s.upper() for s in download)
     result = funnel.select(universe, held, data, top_n=top_n, eligible=eligible)
 
     print(f"Funnel: {len(universe)} ranked locally, {len(data)} with data; "
@@ -668,6 +701,38 @@ def _funnel_symbols(
         if not promoted:
             print("  no breakouts")
     return selected
+
+
+def _load_exposures(book: CycleBook, is_live: bool, sweep: SweepResult) -> None:
+    """What is held right now, in dollars. Live asks the broker (every position,
+    bracketed or not); simulation uses the sweep's fresh prices of the ledger."""
+    if not is_live:
+        book.exposures = dict(sweep.market_values)
+        return
+    try:
+        book.exposures = execution.fetch_live_exposures()
+    except Exception as exc:  # noqa: BLE001 - fail closed: no new buys this cycle
+        book.exposures = {}
+        book.portfolio_error = f"{type(exc).__name__}: {exc}"
+
+
+def _portfolio_check(
+    final: TradeSignal, book: CycleBook, equity: float, config: Dict[str, Any]
+) -> TradeSignal:
+    """portfolio.check_buy for a buy, fetching closes this cycle doesn't have yet
+    (a wake-up or manual cycle never ran the funnel's download)."""
+    if book.portfolio_error:
+        return portfolio._to_hold(final, f"portfolio: open positions unknown ({book.portfolio_error})")
+    settings = portfolio.settings_from_config(config)
+    held = book.exposures or {}
+    if settings["correlation"]["enabled"] and held:
+        missing = [s for s in [final.symbol, *held]
+                   if s not in book.closes and s.upper() not in book.closes_tried]
+        if missing:
+            data = funnel.fetch_funnel_data(missing)
+            book.closes.update(getattr(data, "closes", {}) or {})
+            book.closes_tried.update(s.upper() for s in missing)
+    return portfolio.check_buy(final, held, equity, settings, config, book.closes)
 
 
 def _symbols_signalled_today(bot_logger: BotLogger) -> Optional[Set[str]]:
@@ -768,6 +833,9 @@ def _process_symbol(
         min_reward_risk_ratio=min_reward_risk_ratio,
     )
 
+    if final.action == "buy" and existing_position is None and book.exposures is not None:
+        final = _portfolio_check(final, book, equity, config)
+
     exec_result = None
     if final.action != "hold":
         exec_result = execution.execute_trade(
@@ -787,7 +855,8 @@ def _process_symbol(
             bot_logger.record_pnl(symbol, float(exec_result.realized_pnl_usd))
 
         _update_ledger(bot_logger, final, exec_result, current_price, is_live)
-        book.note_fill(final.action, exec_result.qty, float(exec_result.fill_price or current_price))
+        book.note_fill(symbol, final.action, exec_result.qty,
+                       float(exec_result.fill_price or current_price))
 
         notifications.send_trade_alert(
             is_live=is_live,
