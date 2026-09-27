@@ -37,25 +37,10 @@ min_confidence_live: 0.60
 min_confidence_simulation: 0.40
 
 # ---------------------------------------------------------------- approval mode
-# Human approval before every live, model-driven order (approval.py).
-#
-# Delivered as a Telegram message with inline buttons (notifications.py).
-#
-# To turn it on:
-#   1. Create a bot with @BotFather and set up TELEGRAM_BOT_TOKEN and
-#      TELEGRAM_CHAT_ID -- see "Telegram" in deploy/README.md.
-#   2. Set both as GitHub secrets (and/or in the VPS .env).
-#   3. Change the line below to `approval_mode: true` and push.
-#
-# Each proposed buy/sell then arrives as a Telegram message with Aprovar /
-# Rebutjar buttons. Only Aprovar submits the order to Alpaca (after a fresh price
-# and position re-check); Rebutjar or no answer within approval_timeout_seconds
-# logs it as skipped. Stop-loss / take-profit auto-exits are never held for
-# approval. Simulation is never gated. If approval_mode is true but the Telegram
-# variables are unset or malformed, or Telegram is unreachable, every live order
-# is skipped -- it fails closed, never open.
-approval_mode: true
-approval_timeout_seconds: 600
+# The bot trades fully autonomously: no order ever waits for a human. Manual
+# approval was removed, so this must stay false -- a cycle refuses to run with
+# `approval_mode: true` rather than trade while claiming to ask first.
+approval_mode: false
 
 # ------------------------------------------------------------------------- funnel
 # Full-universe cycles (scheduled, or a manual run of trading_bot.yml) rank all
