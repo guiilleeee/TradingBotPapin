@@ -59,7 +59,7 @@ import data_fetcher
 import main as main_module
 import mode
 import risk_manager
-from models import AssetClass, ExistingPosition, SignalInput, TokenUsage, TradeSignal
+from models import AssetClass, EntryRules, ExistingPosition, SignalInput, TokenUsage, TradeSignal
 
 DEFAULT_DB_PATH = "backtest.db"
 DEFAULT_STARTING_EQUITY = 10_000.0
@@ -109,6 +109,8 @@ LIMITATIONS = [
     "(Yahoo RSS only ever returns current items; there is no free archive).",
     "No historical Hyperliquid positioning: market_positioning=None for every "
     "simulated day (the leaderboard is a live snapshot with no archive).",
+    "No historical earnings dates: days_to_earnings=None for every simulated "
+    "day, so the pre-earnings blackout rule never fires in a backtest.",
 ]
 
 
@@ -578,6 +580,7 @@ def run_symbol_for_day(
         existing_position=existing_position,
         technical_indicators=indicators,
         recent_headlines=[], # limitation 1 -- see module docstring
+        entry_rules=EntryRules(min_reward_risk_ratio=min_reward_risk_ratio),
         )
 
     today_loss_pct = state.today_realized_loss_pct()

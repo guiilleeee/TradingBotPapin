@@ -7,7 +7,9 @@ a headline fetch may fail silently, price data may not.
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
-from typing import List, Optional
+from datetime import date, datetime, timezone
+from email.utils import parsedate_to_datetime
+from typing import Any, Iterable, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -32,6 +34,10 @@ DEFAULT_PERIOD = "120d"
 RSI_PERIOD = 14
 SMA_SHORT = 20
 SMA_LONG = 50
+
+# Headlines older than this are dropped: a week-old story is already in the price,
+# and without a date the model can't tell it from this morning's.
+HEADLINE_MAX_AGE_HOURS = 72
 
 _YAHOO_RSS = "https://feeds.finance.yahoo.com/rss/2.0/headline?s={q}&region=US&lang=en-US"
 # Yahoo answers 429 Too Many Requests to a bare requests/urllib User-Agent, on the
@@ -175,8 +181,18 @@ def latest_price(df: pd.DataFrame) -> float:
     return float(df["Close"].astype(float).iloc[-1])
 
 
-def fetch_headlines(symbol: str, limit: int = 5, timeout: float = 10.0) -> List[str]:
-    """Recent Yahoo Finance headlines for `symbol`.
+def fetch_headlines(
+    symbol: str,
+    limit: int = 5,
+    timeout: float = 10.0,
+    max_age_hours: float = HEADLINE_MAX_AGE_HOURS,
+    now: Optional[datetime] = None,
+) -> List[str]:
+    """Recent Yahoo Finance headlines for `symbol`, newest `max_age_hours` only.
+
+    Each one is prefixed with its age ("[5h ago] ...") so the model can weigh
+    fresh news over stale. An item without a parseable pubDate is dropped:
+    its freshness can't be checked.
 
     Never raises. A news outage is not a reason to skip a trading decision, so the
     caller gets an empty list and the model is told there are no headlines.
@@ -186,14 +202,78 @@ def fetch_headlines(symbol: str, limit: int = 5, timeout: float = 10.0) -> List[
             _YAHOO_RSS.format(q=symbol), timeout=timeout, headers=_HEADLINE_HEADERS
         )
         resp.raise_for_status()
-        root = ET.fromstring(resp.content)
-        titles: List[str] = []
-        for item in root.iter("item"):
-            title: Optional[ET.Element] = item.find("title")
-            if title is not None and title.text:
-                titles.append(title.text.strip())
-            if len(titles) >= limit:
-                break
-        return titles
+        return parse_headlines(resp.content, limit=limit, max_age_hours=max_age_hours, now=now)
     except Exception:
         return []
+
+
+def parse_headlines(
+    xml_bytes: bytes,
+    limit: int = 5,
+    max_age_hours: float = HEADLINE_MAX_AGE_HOURS,
+    now: Optional[datetime] = None,
+) -> List[str]:
+    """The RSS parsing half of fetch_headlines, separate so it tests offline."""
+    now = now or datetime.now(timezone.utc)
+    root = ET.fromstring(xml_bytes)
+    titles: List[str] = []
+    for item in root.iter("item"):
+        title: Optional[ET.Element] = item.find("title")
+        published: Optional[ET.Element] = item.find("pubDate")
+        if title is None or not title.text or published is None or not published.text:
+            continue
+        try:
+            when = parsedate_to_datetime(published.text.strip())
+        except (TypeError, ValueError):
+            continue
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        age_hours = (now - when).total_seconds() / 3600.0
+        if age_hours > max_age_hours:
+            continue
+        titles.append(f"[{max(int(age_hours), 0)}h ago] {title.text.strip()}")
+        if len(titles) >= limit:
+            break
+    return titles
+
+
+# ------------------------------------------------------------------- earnings
+
+
+def fetch_days_to_earnings(symbol: str, today: Optional[date] = None) -> Optional[int]:
+    """Calendar days until the next earnings report, or None if unknown.
+
+    Never raises: a missing date just means the earnings rule can't fire.
+    """
+    try:
+        calendar = yf.Ticker(symbol).calendar
+    except Exception:
+        return None
+    return days_to_earnings_from_calendar(calendar, today)
+
+
+def days_to_earnings_from_calendar(calendar: Any, today: Optional[date] = None) -> Optional[int]:
+    """Parse yfinance's `Ticker.calendar` (a dict in yfinance 1.x; a DataFrame in
+    older versions) into days until the nearest earnings date not in the past."""
+    today = today or datetime.now(timezone.utc).date()
+    raw: Any = None
+    try:
+        if isinstance(calendar, dict):
+            raw = calendar.get("Earnings Date")
+        elif isinstance(calendar, pd.DataFrame) and "Earnings Date" in calendar.index:
+            raw = list(calendar.loc["Earnings Date"].values)
+    except Exception:
+        return None
+    if raw is None:
+        return None
+    candidates: Iterable[Any] = raw if isinstance(raw, (list, tuple)) else [raw]
+
+    upcoming = []
+    for value in candidates:
+        try:
+            day = pd.Timestamp(value).date()
+        except (TypeError, ValueError):
+            continue
+        if day >= today:
+            upcoming.append((day - today).days)
+    return min(upcoming) if upcoming else None

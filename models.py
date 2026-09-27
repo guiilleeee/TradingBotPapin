@@ -70,6 +70,16 @@ class ExistingPosition(BaseModel):
     avg_entry_price: float = Field(gt=0)
 
 
+class EntryRules(BaseModel):
+    """Code-enforced limits a new buy must meet, shown to the model so it doesn't
+    propose a trade the risk layer will only turn into a hold."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    min_reward_risk_ratio: Optional[float] = None
+    earnings_blackout_days: Optional[int] = None
+
+
 class SignalInput(BaseModel):
     """Everything the model is allowed to see about one symbol."""
 
@@ -82,6 +92,10 @@ class SignalInput(BaseModel):
     existing_position: Optional[ExistingPosition] = None
     technical_indicators: TechnicalIndicators
     recent_headlines: List[str] = Field(default_factory=list)
+    # Calendar days until the next earnings report; None when unknown (and
+    # always for crypto).
+    days_to_earnings: Optional[int] = None
+    entry_rules: Optional[EntryRules] = None
 
 
 class SignalOutput(BaseModel):

@@ -648,14 +648,14 @@ def test_max_drawdown_is_measured_from_the_running_peak():
     assert report["max_drawdown_pct"] == pytest.approx(expected_dd)
 
 
-def test_report_states_the_two_known_limitations_plainly():
+def test_report_states_the_known_limitations_plainly():
     frame = daily_frame(n=5, close=100.0)
     state = backtest.BacktestState(equity=10_000.0)
     state.equity_curve = [(d, 10_000.0) for d in frame.index]
     report = backtest.compute_report(
         state, {"TEST": frame}, [("TEST", "equity")], frame.index[0].date(), frame.index[-1].date(), 10_000.0,
     )
-    assert len(report["limitations"]) == 2
+    assert len(report["limitations"]) == 3
     assert any("headline" in item.lower() for item in report["limitations"])
     assert any("positioning" in item.lower() for item in report["limitations"])
 

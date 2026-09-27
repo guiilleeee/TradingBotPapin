@@ -56,6 +56,11 @@ def no_network_for_cycle_side_data(monkeypatch):
     monkeypatch.setattr(benchmark, "fetch_benchmark_price", lambda symbol="QQQ": None)
     monkeypatch.setattr(funnel, "fetch_funnel_data", lambda symbols: {})
 
+    import data_fetcher
+
+    # Earnings dates come from yfinance; a test about them passes its own.
+    monkeypatch.setattr(data_fetcher, "fetch_days_to_earnings", lambda symbol, today=None: None)
+
 
 @pytest.fixture
 def tmp_logger(tmp_path):

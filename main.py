@@ -35,7 +35,7 @@ import risk_manager
 import symbol_config
 from logger import BotLogger, parse_utc
 from mode import ModeSettings, resolve_is_live, resolve_mode_settings
-from models import ExistingPosition, SignalInput, TradeSignal
+from models import EntryRules, ExistingPosition, SignalInput, TradeSignal
 
 DEFAULT_CONFIG_PATH = "config.yaml"
 DEFAULT_SYMBOLS_PATH = "symbols.yaml"
@@ -703,6 +703,17 @@ def _funnel_symbols(
     return selected
 
 
+DEFAULT_EARNINGS_BLACKOUT_DAYS = 2
+
+
+def _earnings_blackout_days(config: Dict[str, Any]) -> int:
+    """`earnings_blackout_days` from config; a malformed value keeps the default."""
+    try:
+        return max(int(config.get("earnings_blackout_days", DEFAULT_EARNINGS_BLACKOUT_DAYS)), 0)
+    except (TypeError, ValueError):
+        return DEFAULT_EARNINGS_BLACKOUT_DAYS
+
+
 def _load_exposures(book: CycleBook, is_live: bool, sweep: SweepResult) -> None:
     """What is held right now, in dollars. Live asks the broker (every position,
     bracketed or not); simulation uses the sweep's fresh prices of the ledger."""
@@ -775,14 +786,24 @@ def _process_symbol(
         symbol=symbol, is_live=is_live, bot_logger=bot_logger
     )
 
+    asset_class = symbol_config.asset_class(symbol, config)
+    earnings_blackout_days = _earnings_blackout_days(config)
     signal_input = SignalInput(
         symbol=symbol,
-        asset_class=symbol_config.asset_class(symbol, config),
+        asset_class=asset_class,
         current_price=current_price,
         account_equity_usd=equity,
         existing_position=existing_position,
         technical_indicators=indicators,
         recent_headlines=data_fetcher.fetch_headlines(symbol),
+        days_to_earnings=(
+            None if asset_class == symbol_config.CRYPTO
+            else data_fetcher.fetch_days_to_earnings(symbol)
+        ),
+        entry_rules=EntryRules(
+            min_reward_risk_ratio=min_reward_risk_ratio,
+            earnings_blackout_days=earnings_blackout_days,
+        ),
     )
 
     # Recomputed per symbol so a loss taken earlier in this cycle can still trip
@@ -831,6 +852,8 @@ def _process_symbol(
         max_absolute_position_pct=max_absolute_position_pct,
         min_confidence=settings.min_confidence,
         min_reward_risk_ratio=min_reward_risk_ratio,
+        days_to_earnings=signal_input.days_to_earnings,
+        earnings_blackout_days=earnings_blackout_days,
     )
 
     if final.action == "buy" and existing_position is None and book.exposures is not None:

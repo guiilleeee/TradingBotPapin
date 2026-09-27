@@ -39,6 +39,8 @@ def validate(
     max_absolute_position_pct: float,
     min_confidence: float,
     min_reward_risk_ratio: float = DEFAULT_MIN_REWARD_RISK_RATIO,
+    days_to_earnings: Optional[int] = None,
+    earnings_blackout_days: int = 0,
 ) -> TradeSignal:
     """Apply the risk rules in order and return the signal execution may act on.
 
@@ -55,6 +57,11 @@ def validate(
             over stop-loss distance, both from current_price). Structural, not part
             of the live/simulation confidence-threshold split -- applies identically
             in both modes.
+        days_to_earnings: calendar days to the next earnings report, or None
+            when unknown -- an unknown date never blocks.
+        earnings_blackout_days: a buy with days_to_earnings in [0, N] is held;
+            a bracket held through an earnings gap can lose far past its stop.
+            0 disables the rule.
     """
     reasons: List[str] = []
 
@@ -73,6 +80,19 @@ def validate(
         reasons.append(
             f"circuit breaker: today's realised P&L {today_realized_loss_pct:.2f}% is at or "
             f"beyond the -{breaker:.2f}% daily limit"
+        )
+        action = "hold"
+
+    # 1b. Earnings blackout. Buy only: exiting ahead of earnings is fine.
+    if (
+        action == "buy"
+        and earnings_blackout_days > 0
+        and days_to_earnings is not None
+        and 0 <= days_to_earnings <= earnings_blackout_days
+    ):
+        reasons.append(
+            f"earnings in {days_to_earnings} day(s), inside the "
+            f"{earnings_blackout_days}-day pre-earnings blackout"
         )
         action = "hold"
 
