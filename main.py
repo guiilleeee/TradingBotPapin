@@ -76,6 +76,11 @@ def load_config(
     (hand-tuned, checked into the repo) stands in for it, so the 4h cycle never
     ends up with nothing to trade because the weekly job hasn't run yet, or broke.
 
+    The one other thing read from symbols.yaml is `pool`, the full non-financial
+    Nasdaq-100. It goes into `config["prefilter_pool"]` and only ever feeds
+    funnel.prefilter's list of symbols it *may* analyse on a breakout. It has
+    the same limit as `symbols`: it names symbols and can set nothing else.
+
     `symbols_path` defaults to `default_symbols_path(path)` -- i.e. scoped next
     to whichever config.yaml is actually in use -- rather than a fixed cwd-relative
     path, so an isolated (e.g. tmp_path-based) config can never pick up the real
@@ -106,6 +111,9 @@ def load_config(
             config["symbols"] = list(screened_symbols) + [
                 e for e in fixed_crypto if e["symbol"].upper() not in screened_names
             ]
+        pool = screened.get("pool")
+        if isinstance(pool, list):
+            config["prefilter_pool"] = [str(s).strip().upper() for s in pool if str(s).strip()]
 
     return config
 
@@ -428,7 +436,9 @@ def _run_cycle_body(
                 max_absolute_position_pct=max_absolute_position_pct,
                 min_reward_risk_ratio=min_reward_risk_ratio,
                 breaker_tracker=breaker_tracker,
-                trigger_reason=trigger_reason,
+                # A pre-filter promotion is tagged "prefilter" on its own row.
+                trigger_reason=(entry.get("trigger_reason") if isinstance(entry, dict) else None)
+                or trigger_reason,
             )
         except Exception as exc:  # noqa: BLE001 - one symbol never kills the cycle
             print(f"- {symbol}: FAILED: {type(exc).__name__}: {exc}")
@@ -521,7 +531,16 @@ def _funnel_symbols(
     def eligible(symbol: str) -> bool:
         return equities_open or symbol_config.is_crypto(symbol, config)
 
-    data = funnel.fetch_funnel_data(universe)
+    # Pre-filter: pool symbols outside the universe ride along in the same
+    # download. They are equities, so they only matter while NYSE is open.
+    universe_upper = {s.upper() for s in universe}
+    prefilter_settings = funnel.prefilter_config(config)
+    pool = [
+        s for s in config.get("prefilter_pool") or []
+        if s.upper() not in universe_upper and not symbol_config.is_crypto(s, config)
+    ] if equities_open and prefilter_settings["enabled"] else []
+
+    data = funnel.fetch_funnel_data(universe + pool)
     result = funnel.select(universe, held, data, top_n=top_n, eligible=eligible)
 
     print(f"Funnel: {len(universe)} ranked locally, {len(data)} with data; "
@@ -539,7 +558,37 @@ def _funnel_symbols(
         if entry is None:
             entry = {"symbol": symbol, "asset_class": symbol_config.asset_class(symbol, config)}
         selected.append(entry)
+
+    signalled_today = _symbols_signalled_today(bot_logger) if pool else None
+    if pool and signalled_today is not None:
+        already = {s.upper() for s in result.selected} | signalled_today
+        promoted = funnel.prefilter(pool, data, prefilter_settings, exclude=already)
+        print(f"Pre-filter: {len(pool)} pool symbols checked, "
+              f"{sum(1 for s in pool if s in data)} with data; "
+              f"thresholds vol x{prefilter_settings['volume_ratio']:g} and "
+              f"{prefilter_settings['move_z']:g} sigma up, max {prefilter_settings['max_extra']}")
+        for row in promoted:
+            print(f"  promoted {row['symbol']:<9} vol x{row['volume_ratio']:.2f}  "
+                  f"move {row['last_return_pct']:+.2f}% ({row['move_z']:.1f} sigma)")
+            selected.append({
+                "symbol": row["symbol"],
+                "asset_class": symbol_config.EQUITY,
+                "trigger_reason": "prefilter",
+            })
+        if not promoted:
+            print("  no breakouts")
     return selected
+
+
+def _symbols_signalled_today(bot_logger: BotLogger) -> Optional[Set[str]]:
+    """None if the ledger can't be read. The caller then promotes nothing, because
+    without it the once-per-day cap can't be enforced."""
+    try:
+        return bot_logger.symbols_signalled_today()
+    except Exception as exc:  # noqa: BLE001 - fail closed: no promotions, cycle goes on
+        print(f"  [prefilter] could not read today's signals ({type(exc).__name__}: {exc}); "
+              "skipping promotions")
+        return None
 
 
 def _process_symbol(
@@ -705,7 +754,9 @@ def main() -> int:
         default="scheduled",
         help="Why this cycle was triggered: 'scheduled' (normal 8h cron), 'wake_buy' "
              "(off-schedule, buy-side trigger), 'wake_sell' (off-schedule, sell-side "
-             "trigger), or 'manual' (dashboard-triggered one-off analysis).",
+             "trigger), or 'manual' (dashboard-triggered one-off analysis). "
+             "Individual pre-filter promotions inside a scheduled cycle are "
+             "logged as 'prefilter'.",
     )
     args = parser.parse_args()
 

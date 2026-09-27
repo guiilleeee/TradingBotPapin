@@ -240,3 +240,174 @@ def test_targeted_cycles_bypass_the_funnel(tmp_logger, tmp_path, monkeypatch, pr
 def test_funnel_can_be_switched_off(tmp_logger, tmp_path, monkeypatch, processed):
     main._run_cycle_body(_config(tmp_logger, tmp_path, funnel={"enabled": False}), is_live=False)
     assert processed == UNIVERSE
+
+
+# ------------------------------------------------------------------ pre-filter
+
+PF = dict(funnel.PREFILTER_DEFAULTS)
+
+
+def _m(volume_ratio, move_z, last_return_pct=1.0):
+    return {"volume_ratio": volume_ratio, "move_z": move_z, "last_return_pct": last_return_pct}
+
+
+def test_prefilter_needs_volume_and_move_together():
+    data = {"BOTH": _m(2.0, 2.0), "VOL": _m(5.0, 1.9), "MOVE": _m(1.9, 5.0)}
+    assert [r["symbol"] for r in funnel.prefilter(list(data), data, PF)] == ["BOTH"]
+
+
+def test_prefilter_ignores_breakdowns_because_the_bot_never_shorts():
+    data = {"DOWN": _m(4.0, 4.0, last_return_pct=-3.0), "FLAT": _m(4.0, 4.0, last_return_pct=0.0)}
+    assert funnel.prefilter(list(data), data, PF) == []
+
+
+def test_prefilter_caps_at_max_extra_strongest_move_first():
+    data = {"A": _m(3.0, 2.5), "B": _m(3.0, 4.0), "C": _m(3.0, 3.0), "D": _m(3.0, 2.1)}
+    assert [r["symbol"] for r in funnel.prefilter(list(data), data, PF)] == ["B", "C"]
+
+
+def test_prefilter_skips_excluded_and_dataless_symbols():
+    data = {"A": _m(3.0, 3.0), "B": _m(3.0, 3.0)}
+    picked = funnel.prefilter(["MISSING", "A", "B"], data, PF, exclude=["a"])
+    assert [r["symbol"] for r in picked] == ["B"]
+
+
+def test_prefilter_can_be_disabled():
+    data = {"A": _m(3.0, 3.0)}
+    assert funnel.prefilter(["A"], data, {**PF, "enabled": False}) == []
+
+
+@pytest.mark.parametrize("raw, expected", [
+    (None, PF),
+    ({"volume_ratio": 3, "max_extra": 1}, {**PF, "volume_ratio": 3.0, "max_extra": 1}),
+    ({"move_z": "x", "max_extra": -5}, {**PF, "max_extra": 0}),
+    ({"enabled": False}, {**PF, "enabled": False}),
+])
+def test_prefilter_config_parsing(raw, expected):
+    assert funnel.prefilter_config({"funnel": {"prefilter": raw}}) == expected
+
+
+def test_shipped_prefilter_thresholds():
+    import yaml
+
+    with open(main.DEFAULT_CONFIG_PATH, encoding="utf-8") as handle:
+        config = yaml.safe_load(handle)
+    assert funnel.prefilter_config(config) == {
+        "enabled": True, "volume_ratio": 2.0, "move_z": 2.0, "max_extra": 2,
+    }
+
+
+OUTSIDE = ["POOL1", "POOL2", "POOL3", "POOL4"]
+POOL = EQUITIES + OUTSIDE
+
+
+@pytest.fixture
+def processed_with_reason(monkeypatch):
+    seen = []
+    monkeypatch.setattr(
+        main, "_process_symbol",
+        lambda *, symbol, trigger_reason, **kw: seen.append((symbol, trigger_reason)),
+    )
+    monkeypatch.setattr(main, "get_provider", lambda config: ("stub", None))
+    monkeypatch.setattr(main.position_metrics, "compute_position_metrics", lambda *a, **k: [])
+    monkeypatch.setattr(
+        main.data_fetcher, "fetch_ohlcv",
+        lambda symbol, period=None, interval="1d": pd.DataFrame({"Close": [100.0]}),
+    )
+    return seen
+
+
+def _pool_data(requested):
+    data = data_with_scores(UNIVERSE)
+    data.update({
+        "POOL1": _m(2.5, 3.0),  # breakout
+        "POOL2": _m(3.0, 2.2),  # breakout, weakest move
+        "POOL3": _m(4.0, 5.0),  # breakout, strongest move
+        "POOL4": _m(1.0, 9.0),  # big move, no volume: not promoted
+    })
+    return {s: d for s, d in data.items() if s in requested}
+
+
+SCHEDULED_ONLY = [(s, "scheduled") for s in UNIVERSE[:6]]
+
+
+def test_scheduled_cycle_adds_prefilter_breakouts_on_top_of_the_funnel(
+    tmp_logger, tmp_path, monkeypatch, processed_with_reason
+):
+    requested = []
+    monkeypatch.setattr(funnel, "fetch_funnel_data",
+                        lambda symbols: requested.extend(symbols) or _pool_data(symbols))
+
+    main._run_cycle_body(_config(tmp_logger, tmp_path, prefilter_pool=POOL), is_live=False)
+
+    # One download covers the universe and the out-of-universe pool.
+    assert sorted(requested) == sorted(UNIVERSE + OUTSIDE)
+    assert processed_with_reason == SCHEDULED_ONLY + [("POOL3", "prefilter"), ("POOL1", "prefilter")]
+
+
+def test_prefilter_promotes_a_symbol_at_most_once_per_day(
+    tmp_logger, tmp_path, monkeypatch, processed_with_reason
+):
+    monkeypatch.setattr(funnel, "fetch_funnel_data", _pool_data)
+    tmp_logger.log_signal("POOL3", None, None, None, is_live=False, trigger_reason="prefilter")
+
+    main._run_cycle_body(_config(tmp_logger, tmp_path, prefilter_pool=POOL), is_live=False)
+
+    promoted = [s for s, reason in processed_with_reason if reason == "prefilter"]
+    assert promoted == ["POOL1", "POOL2"]
+
+
+def test_prefilter_does_not_run_while_the_equity_market_is_closed(
+    tmp_logger, tmp_path, monkeypatch, processed_with_reason
+):
+    monkeypatch.setattr(execution, "_is_market_open", lambda: False)
+    requested = []
+    monkeypatch.setattr(funnel, "fetch_funnel_data",
+                        lambda symbols: requested.extend(symbols) or _pool_data(symbols))
+
+    main._run_cycle_body(_config(tmp_logger, tmp_path, prefilter_pool=POOL), is_live=False)
+
+    assert not set(OUTSIDE) & set(requested)
+    assert all(reason == "scheduled" for _, reason in processed_with_reason)
+
+
+def test_prefilter_skips_promotions_when_todays_signals_are_unreadable(
+    tmp_logger, tmp_path, monkeypatch, processed_with_reason
+):
+    monkeypatch.setattr(funnel, "fetch_funnel_data", _pool_data)
+
+    def boom(self):
+        raise RuntimeError("db locked")
+
+    monkeypatch.setattr(main.BotLogger, "symbols_signalled_today", boom)
+
+    main._run_cycle_body(_config(tmp_logger, tmp_path, prefilter_pool=POOL), is_live=False)
+
+    assert processed_with_reason == SCHEDULED_ONLY
+
+
+def test_without_a_pool_the_cycle_is_unchanged(tmp_logger, tmp_path, monkeypatch, processed_with_reason):
+    monkeypatch.setattr(funnel, "fetch_funnel_data", _pool_data)
+    main._run_cycle_body(_config(tmp_logger, tmp_path), is_live=False)
+    assert processed_with_reason == SCHEDULED_ONLY
+
+
+def test_prefilter_can_be_switched_off_in_config(tmp_logger, tmp_path, monkeypatch, processed_with_reason):
+    monkeypatch.setattr(funnel, "fetch_funnel_data", _pool_data)
+    config = _config(tmp_logger, tmp_path, prefilter_pool=POOL,
+                     funnel={"prefilter": {"enabled": False}})
+    main._run_cycle_body(config, is_live=False)
+    assert processed_with_reason == SCHEDULED_ONLY
+
+
+@pytest.mark.parametrize("reason", ["wake_buy", "wake_sell", "manual"])
+def test_targeted_cycles_never_run_the_prefilter(tmp_logger, tmp_path, monkeypatch, processed, reason):
+    def must_not_run(symbols):
+        raise AssertionError("prefilter must not run for a targeted cycle")
+
+    monkeypatch.setattr(funnel, "fetch_funnel_data", must_not_run)
+    main._run_cycle_body(
+        _config(tmp_logger, tmp_path, prefilter_pool=POOL), is_live=False,
+        trigger_symbols=["DOGE-USD"], trigger_reason=reason,
+    )
+    assert processed == ["DOGE-USD"]

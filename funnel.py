@@ -26,6 +26,19 @@ relative to the symbol's own recent history:
 
 score = 0.6 * percentile(volume_ratio) + 0.4 * percentile(move_z) -- the same
 weights and percentile ranking as equity_universe.score_equities.
+
+Pre-filter (`prefilter` below): the weekly screen keeps only the top 25 of the
+non-financial Nasdaq-100, so the rest of that pool would otherwise go unseen all
+week. On the same batched download, each scheduled cycle also checks the rest of
+the pool against *absolute* thresholds. Percentiles would always pick someone;
+absolute thresholds pick no one on a quiet day. A pool symbol gets added for
+analysis only if every condition holds:
+
+  volume_ratio >= 2.0   and   move_z >= 2.0   and   last return > 0
+
+The last condition is there because the bot is spot-only and never shorts, so a
+breakdown in a stock it doesn't hold can't be traded. At most `max_extra` (2)
+symbols are added per cycle, strongest move first, on top of top_n.
 """
 
 from __future__ import annotations
@@ -38,6 +51,12 @@ import pandas as pd
 from equity_universe import MOMENTUM_WEIGHT, VOLUME_WEIGHT, percentile_ranks
 
 DEFAULT_TOP_N = 6
+PREFILTER_DEFAULTS: Dict[str, Any] = {
+    "enabled": True,
+    "volume_ratio": 2.0,
+    "move_z": 2.0,
+    "max_extra": 2,
+}
 FETCH_PERIOD = "3mo"
 LOOKBACK_SESSIONS = 20
 # Two recent bars plus the lookback plus one prior close for the first return.
@@ -178,3 +197,52 @@ def select(
     ][: max(top_n, 0)]
 
     return FunnelResult(held=held_ordered, candidates=candidates, scored=scored)
+
+
+# -------------------------------------------------------------------- pre-filter
+
+
+def prefilter_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    """`funnel.prefilter` merged over PREFILTER_DEFAULTS; a malformed value keeps
+    its default rather than disabling the filter or loosening it."""
+    raw = ((config or {}).get("funnel") or {}).get("prefilter") or {}
+    out = dict(PREFILTER_DEFAULTS)
+    if not isinstance(raw, dict):
+        return out
+    out["enabled"] = raw.get("enabled", True) is not False
+    for key in ("volume_ratio", "move_z"):
+        try:
+            out[key] = float(raw.get(key, out[key]))
+        except (TypeError, ValueError):
+            pass
+    try:
+        out["max_extra"] = max(int(raw.get("max_extra", out["max_extra"])), 0)
+    except (TypeError, ValueError):
+        pass
+    return out
+
+
+def prefilter(
+    pool: Sequence[str],
+    data: Dict[str, Dict[str, float]],
+    settings: Dict[str, Any],
+    exclude: Iterable[str] = (),
+) -> List[Dict[str, Any]]:
+    """Pool symbols that break out on volume *and* price, strongest move first,
+    capped at settings["max_extra"]. `exclude` covers symbols already on this
+    cycle's list, and any symbol already analysed today (once per day each).
+    """
+    if not settings.get("enabled", True):
+        return []
+    skip = {s.upper() for s in exclude}
+    hits = []
+    for symbol in dict.fromkeys(pool):
+        metrics = data.get(symbol)
+        if symbol.upper() in skip or not metrics:
+            continue
+        if (metrics["volume_ratio"] >= settings["volume_ratio"]
+                and metrics["move_z"] >= settings["move_z"]
+                and metrics["last_return_pct"] > 0):
+            hits.append({"symbol": symbol, **metrics})
+    hits.sort(key=lambda r: (-r["move_z"], r["symbol"]))
+    return hits[: settings["max_extra"]]

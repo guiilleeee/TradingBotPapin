@@ -65,7 +65,7 @@ def test_writer_overwrites_a_stale_file_cleanly(tmp_path):
 def stub_equity_side(monkeypatch):
     """A healthy, signal-bearing equity universe."""
     universe = [f"SYM{i}" for i in range(30)]
-    monkeypatch.setattr(equity_universe, "build_equity_universe", lambda: universe)
+    monkeypatch.setattr(equity_universe, "build_equity_pool", lambda: universe)
     monkeypatch.setattr(
         equity_universe, "fetch_universe_price_data",
         lambda symbols: {
@@ -82,9 +82,11 @@ def test_run_screening_writes_symbols_on_a_healthy_run(tmp_path, stub_equity_sid
     # Market-cap order (the universe's own order) is preserved, not score order.
     assert [e["symbol"] for e in doc["symbols"]] == [f"SYM{i}" for i in range(25)]
     assert all(e["asset_class"] == "equity" for e in doc["symbols"])
+    # The whole pool, top 25 included, is kept for the pre-filter.
+    assert doc["pool"] == [f"SYM{i}" for i in range(30)]
 
 def test_run_screening_fails_without_writing_when_equity_universe_is_too_small(tmp_path, monkeypatch):
-    monkeypatch.setattr(equity_universe, "build_equity_universe", lambda: {"AAPL"})
+    monkeypatch.setattr(equity_universe, "build_equity_pool", lambda: {"AAPL"})
     out = tmp_path / "symbols.yaml"
     out.write_text("symbols: [{symbol: OLD, asset_class: equity}]\n", encoding="utf-8")
 
@@ -97,7 +99,7 @@ def test_run_screening_leaves_the_file_untouched_on_an_unexpected_exception(tmp_
     def boom():
         raise RuntimeError("something in FMP parsing broke")
 
-    monkeypatch.setattr(equity_universe, "build_equity_universe", boom)
+    monkeypatch.setattr(equity_universe, "build_equity_pool", boom)
     out = tmp_path / "symbols.yaml"
     out.write_text("symbols: [{symbol: OLD, asset_class: equity}]\n", encoding="utf-8")
 
@@ -107,7 +109,7 @@ def test_run_screening_leaves_the_file_untouched_on_an_unexpected_exception(tmp_
     assert "OLD" in out.read_text(encoding="utf-8")
 
 def test_run_screening_never_touches_the_file_on_first_failed_run(tmp_path, monkeypatch):
-    monkeypatch.setattr(equity_universe, "build_equity_universe", lambda: set())
+    monkeypatch.setattr(equity_universe, "build_equity_pool", lambda: set())
     out = tmp_path / "symbols.yaml"
 
     rc = screening.run_screening(str(out))

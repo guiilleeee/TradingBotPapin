@@ -55,6 +55,18 @@ approval_mode: false
 funnel:
   enabled: true
   top_n: 6
+  # Pre-filter: the weekly screen keeps 25 of the ~95 non-financial Nasdaq-100
+  # names (symbols.yaml `pool`). At each scheduled cycle while NYSE is open, the
+  # rest of the pool is checked in the same batched download, again with no model
+  # call. A symbol is added for analysis (logged with trigger "prefilter") only if
+  # daily volume_ratio >= volume_ratio AND move_z >= move_z AND the move is up.
+  # At most max_extra are added per cycle, on top of top_n, and each symbol at
+  # most once per UTC day. Cost ceiling: +max_extra model calls per market-hours cycle.
+  prefilter:
+    enabled: true
+    volume_ratio: 2.0
+    move_z: 2.0
+    max_extra: 2
 
 # ----------------------------------------------------------------------- universe
 # Equities: the 25 largest non-financial Nasdaq-100 companies by market cap. This

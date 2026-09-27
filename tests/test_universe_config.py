@@ -75,3 +75,27 @@ def test_secondary_share_class_does_not_take_a_slot():
 
 def test_target_universe_size_is_25():
     assert equity_universe.TARGET_UNIVERSE_SIZE == 25
+
+
+def test_symbols_yaml_pool_reaches_the_prefilter_and_nothing_else(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.safe_dump({"max_risk_pct": 1.0, "symbols": [
+        {"symbol": "OLD", "asset_class": "equity"}]}), encoding="utf-8")
+    (tmp_path / "symbols.yaml").write_text(yaml.safe_dump({
+        "symbols": [{"symbol": "NEW1", "asset_class": "equity"}],
+        "pool": ["new1", "pool2", ""],
+        "max_risk_pct": 50.0,
+    }), encoding="utf-8")
+
+    config = main.load_config(str(config_path))
+
+    assert config["prefilter_pool"] == ["NEW1", "POOL2"]
+    assert config["max_risk_pct"] == 1.0
+
+
+def test_rank_by_market_cap_keep_all_returns_the_whole_ranking():
+    rows = [{"symbol": s, "mcap": m} for s, m in [("A", 1.0), ("B", 3.0), ("C", 2.0)]]
+    assert equity_universe.rank_by_market_cap(
+        rows, 2, market_cap_lookup=lambda s: 0.0, keep_all=True) == ["B", "C", "A"]
+    assert equity_universe.rank_by_market_cap(
+        rows[:1], 2, market_cap_lookup=lambda s: 0.0, keep_all=True) == []

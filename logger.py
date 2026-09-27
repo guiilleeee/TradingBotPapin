@@ -12,7 +12,7 @@ import json
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Dict, Iterator, List, Optional, Set
 
 from models import ExecutionResult, ExistingPosition, SignalInput, SignalOutput, TradeSignal
 
@@ -195,6 +195,18 @@ class BotLogger:
                 ),
             )
             return int(cur.lastrowid or 0)
+
+    def symbols_signalled_today(self) -> Set[str]:
+        """Upper-cased symbols with any signal row since 00:00 UTC today.
+
+        funnel.prefilter uses this to promote a pool symbol at most once per day.
+        """
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT DISTINCT symbol FROM signals WHERE timestamp >= ?",
+                (_utc_day_start_iso(),),
+            ).fetchall()
+        return {str(row["symbol"]).upper() for row in rows}
 
     def log_auto_close_signal(
         self,

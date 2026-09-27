@@ -15,6 +15,10 @@ The per-cycle choice of *which* of these the model actually analyses is not made
 here; funnel.py ranks the whole universe locally at every cycle. The weekly
 volume/momentum scores below are informational (logged into symbols.yaml).
 
+The rest of the non-financial Nasdaq-100 (the `pool` key in symbols.yaml) is not
+analysed by default. funnel.prefilter scans it at each scheduled cycle and
+promotes a symbol only when it breaks out on both volume and price.
+
 Blast radius: this entire module can fail in any way and the trading cycle is
 unaffected -- `main.load_config` falls back to whatever `symbols.yaml` (or
 `config.yaml`) already has. `run_screening` enforces that on the writing side:
@@ -27,7 +31,7 @@ from __future__ import annotations
 import argparse
 import traceback
 from datetime import datetime, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import equity_universe
 import notifications
@@ -90,8 +94,8 @@ def run_screening(
         print(f"=== Weekly symbol screening (Nasdaq-100 top {EQUITY_COUNT}) ===")
 
         print("Building equity universe (Nasdaq-100, by market cap)...")
-        equity_pool = equity_universe.build_equity_universe()
-        print(f"  universe: {len(equity_pool)} symbols")
+        equity_pool = list(equity_universe.build_equity_pool())
+        print(f"  pool: {len(equity_pool)} non-financial constituents")
         if len(equity_pool) < EQUITY_COUNT:
             return fail(
                 f"equity universe has only {len(equity_pool)} symbols, need at "
@@ -117,7 +121,7 @@ def run_screening(
         notifications.send_screening_failure_alert(is_live, summary)
         return 1
 
-    _write_symbols_file(output_path, equity_symbols, equity_scored)
+    _write_symbols_file(output_path, equity_symbols, equity_scored, pool=equity_pool)
     print(f"Wrote {output_path}: {len(equity_symbols)} equity symbols")
     notifications.send_screening_complete_alert(is_live, equity_symbols)
     return 0
@@ -127,6 +131,7 @@ def _write_symbols_file(
     output_path: str,
     equity_symbols: List[str],
     equity_scored: List[Dict[str, Any]],
+    pool: Optional[List[str]] = None,
 ) -> None:
     """Atomic write: a temp file plus a rename, so a crash mid-write can never
     leave symbols.yaml half-written or truncated.
@@ -148,6 +153,10 @@ def _write_symbols_file(
                 if s in equity_by_symbol
             },
         },
+        # Read only by main.load_pool, for funnel.prefilter: symbols that may be
+        # *analysed* on a breakout. Like `symbols`, it can never set a risk
+        # parameter or threshold.
+        "pool": list(pool if pool is not None else equity_symbols),
     }
 
     tmp_path = f"{output_path}.tmp"

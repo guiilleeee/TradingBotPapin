@@ -86,12 +86,16 @@ def _yfinance_market_cap(symbol: str) -> float:
 
 
 def rank_by_market_cap(
-    rows: List[Dict[str, Any]], size: int, market_cap_lookup=_yfinance_market_cap
+    rows: List[Dict[str, Any]],
+    size: int,
+    market_cap_lookup=_yfinance_market_cap,
+    keep_all: bool = False,
 ) -> List[str]:
     """Top `size` symbols by market cap, filling gaps from `market_cap_lookup`.
 
     Returns [] unless at least `size` rows end up with a positive market cap -- an
     arbitrary list must never be published as "the largest companies".
+    `keep_all` returns every ranked symbol instead of only the first `size`.
     """
     # One slot per company: a second share class would double the exposure to
     # one issuer while crowding out the 25th-largest company.
@@ -107,11 +111,12 @@ def rank_by_market_cap(
     ranked = sorted((r for r in rows if r["mcap"] > 0), key=lambda r: r["mcap"], reverse=True)
     if len(ranked) < size:
         return []
-    return [r["symbol"] for r in ranked[:size]]
+    return [r["symbol"] for r in (ranked if keep_all else ranked[:size])]
 
 
-def fetch_nasdaq100_top(size: int = TARGET_UNIVERSE_SIZE) -> List[str]:
-    """Fetch Nasdaq-100, filter financials, rank by market cap, take the top `size`."""
+def fetch_nasdaq100_top(size: int = TARGET_UNIVERSE_SIZE, keep_all: bool = False) -> List[str]:
+    """Fetch Nasdaq-100, filter financials, rank by market cap, take the top `size`
+    (or, with `keep_all`, every ranked constituent -- still [] below `size`)."""
     for path in ("/stable/nasdaq-constituent", "/api/v3/nasdaq_constituent"):
         try:
             data = _get(path)
@@ -141,7 +146,7 @@ def fetch_nasdaq100_top(size: int = TARGET_UNIVERSE_SIZE) -> List[str]:
                     mcap = 0.0
                 non_financials.append({"symbol": sym, "mcap": mcap})
 
-            top = rank_by_market_cap(non_financials, size)
+            top = rank_by_market_cap(non_financials, size, keep_all=keep_all)
             if top:
                 return top
         except Exception:
@@ -158,6 +163,16 @@ def build_equity_universe() -> List[str]:
     whatever symbols.yaml or config.yaml already has.
     """
     return fetch_nasdaq100_top(TARGET_UNIVERSE_SIZE)
+
+
+def build_equity_pool() -> List[str]:
+    """Every non-financial Nasdaq-100 constituent, largest market cap first.
+
+    The top TARGET_UNIVERSE_SIZE of it are the week's universe; the whole list is
+    what funnel.prefilter scans each scheduled cycle for breakouts outside it.
+    Same all-or-nothing rule: [] if fewer than TARGET_UNIVERSE_SIZE rank.
+    """
+    return fetch_nasdaq100_top(TARGET_UNIVERSE_SIZE, keep_all=True)
 
 
 _MIN_TRADING_DAYS_FOR_MOMENTUM = 2

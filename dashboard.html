@@ -283,6 +283,7 @@
   .trigger-chip.wake_buy { background: rgba(61,220,132,.14); color: var(--buy); }
   .trigger-chip.wake_sell { background: rgba(255,92,114,.14); color: var(--sell); }
   .trigger-chip.manual { background: rgba(200,147,255,.14); color: var(--override); }
+  .trigger-chip.prefilter { background: rgba(91,157,255,.14); color: var(--accent); }
 
   /* -------------------------------------------------------------- glossary */
   .gloss-search-wrap { margin-bottom: var(--space-6); }
@@ -1342,7 +1343,7 @@ const ACTION_ICON = { buy: 'i-up', sell: 'i-down', hold: 'i-minus' };
 // .mode-chip.REAL/SIMULACIO, which is a different axis (live vs. simulated
 // execution, not why the cycle fired). Falls back to "scheduled" for a blank/
 // unrecognised value, both visually and for the CSS class picked.
-const TRIGGER_REASONS = ['scheduled', 'wake_buy', 'wake_sell', 'manual'];
+const TRIGGER_REASONS = ['scheduled', 'wake_buy', 'wake_sell', 'manual', 'prefilter'];
 function triggerReasonBadge(triggerReason) {
   const reason = triggerReason || 'scheduled';
   const cls = TRIGGER_REASONS.includes(reason) ? reason : 'scheduled';

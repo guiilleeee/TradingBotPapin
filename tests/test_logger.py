@@ -323,3 +323,16 @@ def test_schema_has_exactly_the_expected_tables(tmp_logger):
     assert names == {
         "signals", "pnl", "simulated_positions", "push_subscriptions", "benchmark_snapshots", "meta"
     }
+
+
+def test_symbols_signalled_today_only_counts_rows_since_utc_midnight(tmp_logger):
+    import sqlite3
+
+    tmp_logger.log_signal("aapl", None, None, None, is_live=False, trigger_reason="prefilter")
+    conn = sqlite3.connect(tmp_logger.db_path)
+    conn.execute("INSERT INTO signals (timestamp, symbol) VALUES (?, ?)",
+                 ("2000-01-01T00:00:00+00:00", "OLD"))
+    conn.commit()
+    conn.close()
+
+    assert tmp_logger.symbols_signalled_today() == {"AAPL"}
