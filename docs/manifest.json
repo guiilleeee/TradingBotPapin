@@ -1,7 +1,7 @@
 {
   "name": "TradingBot Papin",
   "short_name": "TradingBot",
-  "start_url": "/TradingBot_Papin/",
+  "start_url": "/TradingBotPapin/",
   "display": "standalone",
   "background_color": "#0f172a",
   "theme_color": "#3b82f6",
