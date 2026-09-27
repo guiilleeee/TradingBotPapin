@@ -434,6 +434,26 @@ def test_live_equity_falls_back_when_no_venue_answers(monkeypatch):
     assert execution.fetch_live_equity(1234.0) == 1234.0
 
 
+@pytest.mark.parametrize("reported,expected", [("0", 0.0), (0, 0.0), ("0.00", 0.0), ("2500.5", 2500.5)])
+def test_live_equity_returns_what_alpaca_reports_even_when_it_is_zero(monkeypatch, reported, expected):
+    # An empty account read successfully is $0, not the simulation's fallback.
+    monkeypatch.setenv("ALPACA_API_KEY", "test-alpaca-key")
+    monkeypatch.setenv("ALPACA_API_SECRET", "test-alpaca-secret")
+    monkeypatch.setattr(
+        execution.requests, "get",
+        lambda *a, **kw: FakeResponse({"equity": reported, "cash": "0", "portfolio_value": "0"}),
+    )
+    assert execution.fetch_live_equity(1000.0) == expected
+
+
+@pytest.mark.parametrize("payload", [{}, {"equity": None}, {"equity": "n/a"}, {"equity": "nan"}, []])
+def test_a_malformed_account_response_is_a_failed_read(monkeypatch, payload):
+    monkeypatch.setenv("ALPACA_API_KEY", "test-alpaca-key")
+    monkeypatch.setenv("ALPACA_API_SECRET", "test-alpaca-secret")
+    monkeypatch.setattr(execution.requests, "get", lambda *a, **kw: FakeResponse(payload))
+    assert execution.fetch_live_equity(1000.0) == 1000.0
+
+
 def test_live_close_books_pnl_from_the_actual_fill(monkeypatch):
     # The circuit breaker acts on this number, so it must reflect what filled,
     # not the pre-trade price the decision was made at.

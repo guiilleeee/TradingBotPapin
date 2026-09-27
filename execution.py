@@ -182,7 +182,11 @@ def _fetch_alpaca_position(symbol: str) -> Optional[ExistingPosition]:
 
 
 def fetch_live_equity(fallback: float) -> float:
-    """Total account equity from Alpaca, falling back on any failure."""
+    """Total account equity from Alpaca, or `fallback` only if the read fails.
+
+    A successful read is returned as-is, including 0: an empty account must
+    show as empty, not as the simulation's starting balance.
+    """
     key, secret = _alpaca_credentials()
     if key and secret:
         try:
@@ -190,8 +194,8 @@ def fetch_live_equity(fallback: float) -> float:
                 f"{ALPACA_BASE_URL}/v2/account", headers=_alpaca_headers(), timeout=HTTP_TIMEOUT
             )
             resp.raise_for_status()
-            equity = float(resp.json().get("equity", 0.0))
-            if equity > 0:
+            equity = float(resp.json()["equity"])
+            if math.isfinite(equity):
                 return equity
         except Exception:
             pass
