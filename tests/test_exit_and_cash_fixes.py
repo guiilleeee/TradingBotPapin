@@ -332,3 +332,13 @@ def test_second_buy_in_a_cycle_sees_the_cash_the_first_one_spent(tmp_logger, mon
             book=book,
         )
     assert [c["cash_available"] for c in calls] == [pytest.approx(500.0), pytest.approx(400.0)]
+
+
+def test_open_legs_are_found_in_a_flat_listing_too(monkeypatch, live_keys):
+    def fake_get(url, headers=None, params=None, timeout=None):
+        if params["nested"] == "true":
+            return FakeResponse([])  # filled parent not listed as open
+        return FakeResponse([dict(leg) for leg in LEGS])
+
+    monkeypatch.setattr(execution.requests, "get", fake_get)
+    assert sorted(o["id"] for o in execution._open_exit_orders("AAPL")) == ["sl", "tp"]

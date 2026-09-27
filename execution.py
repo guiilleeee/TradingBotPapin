@@ -284,25 +284,27 @@ def _open_exit_orders(symbol: str) -> List[Dict[str, Any]]:
     and stop-loss legs. Raises on a broker failure: "no open orders" would let
     the sell go out against shares the legs still hold."""
     order_symbol = symbol_config.alpaca_position_symbol(symbol)
-    resp = requests.get(
-        f"{ALPACA_BASE_URL}/v2/orders",
-        headers=_alpaca_headers(),
-        params={"status": "open", "symbols": order_symbol, "nested": "true", "limit": 500},
-        timeout=HTTP_TIMEOUT,
-    )
-    resp.raise_for_status()
     found: Dict[str, Dict[str, Any]] = {}
-    for order in resp.json() or []:
-        # nested=true rolls legs up under their parent; a flat listing returns
-        # them as top-level rows. Accept either shape.
-        for row in [order] + list(order.get("legs") or []):
-            if (
-                row.get("id")
-                and row.get("side") == "sell"
-                and str(row.get("symbol", order_symbol)).upper() == order_symbol.upper()
-                and row.get("status") not in TERMINAL_ORDER_STATUSES
-            ):
-                found[str(row["id"])] = row
+    # Both listings, merged: nested=true rolls legs up under their parent,
+    # nested=false returns them as top-level rows. Which one surfaces the open
+    # legs of an already-filled parent is not something to bet a sell on.
+    for nested in ("true", "false"):
+        resp = requests.get(
+            f"{ALPACA_BASE_URL}/v2/orders",
+            headers=_alpaca_headers(),
+            params={"status": "open", "symbols": order_symbol, "nested": nested, "limit": 500},
+            timeout=HTTP_TIMEOUT,
+        )
+        resp.raise_for_status()
+        for order in resp.json() or []:
+            for row in [order] + list(order.get("legs") or []):
+                if (
+                    row.get("id")
+                    and row.get("side") == "sell"
+                    and str(row.get("symbol", order_symbol)).upper() == order_symbol.upper()
+                    and row.get("status") not in TERMINAL_ORDER_STATUSES
+                ):
+                    found[str(row["id"])] = row
     return list(found.values())
 
 
