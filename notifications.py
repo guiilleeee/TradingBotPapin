@@ -1,4 +1,4 @@
-"""Outbound alerts, delivered as Telegram messages from the bot to one chat.
+"""Outbound alerts: Telegram messages to one chat, plus Web Push (web_push.py).
 
 The bot calls the Telegram Bot API's `sendMessage` over plain HTTPS. It only
 ever sends; it never reads replies or waits on anyone.
@@ -27,6 +27,7 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
+import web_push
 from secrets_redaction import sanitize as _sanitize
 
 TELEGRAM_API = "https://api.telegram.org"
@@ -115,14 +116,18 @@ def send_alert(subject: str, message: str, config: Optional[dict] = None) -> Non
 
 
 def _notify(line: str) -> None:
-    """Every typed alert below lands here: one line to Telegram if configured."""
-    if not telegram_configured():
-        return
-    line = " ".join(str(line).split())[:300]
+    """Every typed alert below lands here: the same line to Telegram and to Web
+    Push, each only if configured, each independent of the other."""
+    line = _sanitize(" ".join(str(line).split())[:300])
+    if telegram_configured():
+        try:
+            _send_telegram(line, "")
+        except Exception as e:  # noqa: BLE001 - an alert must never break a cycle
+            logging.error(f"Telegram push failed: {_sanitize(str(e))}")
     try:
-        _send_telegram(line, "")
-    except Exception as e:  # noqa: BLE001 - an alert must never break a cycle
-        logging.error(f"Telegram push failed: {_sanitize(str(e))}")
+        web_push.send_to_all("TradingBot Papin", line)
+    except Exception as e:  # noqa: BLE001
+        logging.error(f"Web push failed: {_sanitize(str(e))}")
 
 
 def _prefix(is_live: bool) -> str:

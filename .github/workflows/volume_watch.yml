@@ -51,6 +51,9 @@ jobs:
           ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # Web Push (web_push.py); a no-op with these unset.
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          PUSH_SUBSCRIPTION_KEY: ${{ secrets.PUSH_SUBSCRIPTION_KEY }}
         run: python volume_watch.py --config config.yaml
 
       - name: Publish dashboard (only if a cycle ran)

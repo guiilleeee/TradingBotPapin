@@ -1,0 +1,72 @@
+name: Web Push Subscriptions
+
+# Fired by the dashboard's bell button via repository_dispatch (push_subscribe /
+# push_unsubscribe). The payload is ciphertext the page encrypted with the VPS's
+# public key -- this repo is public and never stores a readable subscription.
+# This workflow is the only writer of docs/push_subscriptions.json, so it can't
+# conflict with the VPS's result pushes. See web_push.py.
+
+on:
+  repository_dispatch:
+    types: [push_subscribe, push_unsubscribe]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: push-subscriptions
+  cancel-in-progress: false
+
+jobs:
+  store:
+    runs-on: ubuntu-latest
+    env:
+      # Caller-controlled: only ever read from env by web_push.py, never
+      # interpolated into a shell command.
+      ACTION: ${{ github.event.action }}
+      PAYLOAD: ${{ toJson(github.event.client_payload) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install
+        run: pip install "cryptography>=42"
+
+      - name: Apply the change
+        run: python web_push.py store --action "$ACTION"
+
+      - name: Commit
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f docs/push_subscriptions.json
+          if git diff --staged --quiet; then
+            echo "Nothing changed."
+            exit 0
+          fi
+          git commit -m "chore: web push $ACTION [skip ci]"
+
+          max_attempts=3
+          attempt=1
+          while true; do
+            if git push; then
+              echo "Pushed on attempt $attempt."
+              exit 0
+            fi
+            if [ "$attempt" -ge "$max_attempts" ]; then
+              echo "::error::git push failed after $max_attempts attempts."
+              exit 1
+            fi
+            echo "git push rejected (attempt $attempt/$max_attempts) -- rebasing and retrying."
+            if ! git pull --rebase; then
+              git rebase --abort 2>/dev/null || true
+              echo "::error::git pull --rebase hit a conflict."
+              exit 1
+            fi
+            attempt=$((attempt + 1))
+            sleep 5
+          done

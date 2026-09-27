@@ -80,6 +80,33 @@ curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
 # The phone should show "Prova".
 ```
 
+### 3c. Web Push (optional, alongside Telegram)
+
+Sends the same one-line alerts as browser notifications from the dashboard, with
+no app to install. Do this after step 4, since it pushes one file.
+
+```bash
+cd /opt/tradingbot
+sudo -u tradingbot .venv/bin/python web_push.py setup
+# -> writes docs/push_config.json (public keys) and prints two lines:
+#    VAPID_PRIVATE_KEY=...   PUSH_SUBSCRIPTION_KEY=...
+sudo -u tradingbot nano .env        # paste both lines; never commit them
+sudo -u tradingbot git add docs/push_config.json
+sudo -u tradingbot git commit -m "Enable web push" && sudo -u tradingbot git push
+```
+
+Then open the dashboard and tap the bell. It asks for the same GitHub token as
+the other buttons, and stores this browser's subscription **encrypted** in
+`docs/push_subscriptions.json` (only this server's `PUSH_SUBSCRIPTION_KEY` can
+read it). Test it: `sudo -u tradingbot .venv/bin/python web_push.py test`.
+
+- **iPhone/iPad:** first add the dashboard to the home screen (Share > Add to
+  Home Screen, iOS 16.4+) and open it from there; Safari tabs can't receive pushes.
+- **Desktop:** the browser has to be running to show them.
+- For manual GitHub Actions runs to push too, add both values as repository
+  secrets with the same names.
+- Running `setup` again makes new keys: every device then has to tap the bell again.
+
 ### 4. Let the server push (only if `PUBLISH=1`)
 
 The dashboard is GitHub Pages, served from `docs/`. It updates only when results
@@ -135,6 +162,10 @@ journalctl -u tradingbot@cycle --since today # today's cycles
 systemctl start tradingbot@cycle             # run a cycle now (off-schedule)
 systemctl disable --now tradingbot-*.timer   # stop everything
 ```
+
+Every `cycle` run, including a failed one, is recorded in `docs/job_status.json`
+and pushed. The dashboard's "Cicles programats" panel shows each scheduled
+cycle as completed, failed (with the error), in progress, or missed.
 
 Deploying a code or config change means pushing it to `main`. With `PUBLISH=1`, every
 job starts with `git pull --rebase`, so the next tick picks it up.

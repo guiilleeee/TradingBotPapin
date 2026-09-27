@@ -8,6 +8,9 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192x192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="TradingBot Papin">
 <script src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
 <style>
   :root {
@@ -128,6 +131,24 @@
   .countdown .text { display: flex; flex-direction: column; line-height: 1.25; }
   .countdown .text b { font-size: 14px; font-weight: 600; }
   .countdown .text span { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+
+  /* ------------------------------------------------------- scheduled cycles */
+  .freshness { margin-left: auto; text-transform: none; letter-spacing: 0; font-weight: 500; font-size: 11px; }
+  .freshness.stale { color: var(--auto); }
+  .cycle-rows { display: flex; flex-direction: column; gap: var(--space-3); }
+  .cycle-row { display: flex; align-items: center; gap: var(--space-3); }
+  .cycle-row .ring { width: 26px; height: 26px; border-radius: 50%; flex: none;
+    background: conic-gradient(var(--accent) calc(var(--pct, 0) * 1%), #232c3a 0);
+    display: flex; align-items: center; justify-content: center; }
+  .cycle-row .ring::after { content: ""; width: 18px; height: 18px; border-radius: 50%; background: var(--panel); }
+  .cycle-when { min-width: 118px; }
+  .cycle-when b { font-size: 14px; font-weight: 600; }
+  .cycle-when span { display: block; font-size: 10.5px; color: var(--muted); }
+  .cycle-status { flex: 1; font-size: 12.5px; line-height: 1.45; min-width: 0; }
+  .cycle-status .next { display: block; color: var(--muted); font-size: 11.5px; }
+  .cycle-status .err { display: block; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+  .st-ok { color: var(--buy); } .st-failed { color: var(--sell); }
+  .st-missed { color: var(--auto); } .st-pending, .st-running, .st-unknown { color: var(--text-dim); }
 
   /* -------------------------------------------------------------------tabs */
   nav.tabs { position: relative; display: flex; gap: var(--space-1); border-bottom: 1px solid var(--border); margin-bottom: var(--space-6); }
@@ -427,6 +448,11 @@
 
 <!-- ================================================================ Resum -->
 <section id="tab-resum" class="tab active">
+  <div class="panel" id="cyclesPanel">
+    <h2><svg class="icon"><use href="#i-clock"/></svg>Cicles programats<span class="freshness" id="freshness"></span></h2>
+    <div class="cycle-rows" id="cycleRows"></div>
+  </div>
+
   <div class="hero">
     <div class="hero-label"><span class="term" data-term="patrimoni total">Patrimoni total</span></div>
     <div class="hero-value mono" id="equity">&mdash;</div>
@@ -1070,9 +1096,8 @@ const RETURN_WINDOWS = [
 ];
 
 // A tiny inline sparkline from data already on the page (signals.csv logs
-// current_price for every symbol on every 4h cycle, since every configured
-// symbol is evaluated -- and logged -- whether it holds, buys, or sells). No
-// new backend call, no new export.
+// current_price whenever a cycle evaluates a symbol, and every held symbol is
+// evaluated on every cycle -- see funnel.py). No new backend call, no new export.
 function sparkline(values, colorVar) {
   if (values.length < 2) return '';
   const w = 56, h = 22, pad = 2;
@@ -1184,41 +1209,127 @@ function renderClocks(positions) {
   el.innerHTML = chips.join('');
 }
 
-// ============================================================= countdown ===
-// Same UTC cron slots trading_bot.yml actually runs on (14:45, 17:30, 02:00
-// UTC -- see the comment there for why they need no DST edits). Purely a
-// presentation layer over that fixed schedule -- it does not trigger anything
-// itself, and GitHub can start a scheduled run late. The ring's sweep is a CSS
-// transition on --pct (registered via @property above); this is a live,
-// once-a-second clock, not decorative motion, so it is not gated on
-// prefers-reduced-motion -- only its cosmetic sweep easing is.
-const CYCLE_SLOTS_UTC = [[2, 0], [14, 45], [17, 30]];
-function cycleSlotsAround(now) {
-  const slots = [];
-  for (let dayOffset = -1; dayOffset <= 1; dayOffset++) {
-    for (const [h, m] of CYCLE_SLOTS_UTC) {
-      const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + dayOffset, h, m));
-      slots.push(d);
-    }
-  }
-  return slots.sort((a, b) => a - b);
+// ============================================================= cycles ======
+// The VPS timer (deploy/systemd/tradingbot-cycle.timer): two slots in New York
+// time -- so they follow US daylight saving on their own -- and one in UTC.
+// Presentation only: nothing here triggers a run.
+const CYCLE_SLOTS = [
+  { h: 10, m: 45, tz: 'America/New_York', tzLabel: 'ET' },
+  { h: 13, m: 30, tz: 'America/New_York', tzLabel: 'ET' },
+  { h: 2, m: 0, tz: 'UTC', tzLabel: 'UTC' },
+];
+// A run belongs to a slot if it starts within 75 min of it (a cycle can wait up
+// to an hour for the VPS lock). Data older than 30 min means the VPS may be down.
+const SLOT_WINDOW_MS = 75 * 60000;
+const STALE_MS = 30 * 60000;
+
+let JOB_STATUS = null;          // docs/job_status.json, once loaded
+let DATA_GENERATED_MS = null;   // newest generated_at across the published files
+
+function partsIn(tz, ms, withTime) {
+  const opts = { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' };
+  if (withTime) Object.assign(opts, { hourCycle: 'h23', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  return new Intl.DateTimeFormat('en-US', opts).formatToParts(new Date(ms))
+    .reduce((acc, p) => (acc[p.type] = p.value, acc), {});
 }
+function tzOffsetMs(ms, tz) {
+  const p = partsIn(tz, ms, true);
+  const wall = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour % 24, +p.minute, +p.second);
+  return wall - Math.floor(ms / 1000) * 1000;
+}
+// The instant at which it is h:m on calendar day (y, mo, d) in `tz`.
+function zonedTime(y, mo, d, h, m, tz) {
+  const wall = Date.UTC(y, mo, d, h, m);
+  const first = wall - tzOffsetMs(wall, tz);
+  return wall - tzOffsetMs(first, tz);   // second pass settles a DST boundary
+}
+function slotTimes(slot, nowMs) {
+  const p = partsIn(slot.tz, nowMs, false);
+  const occ = [];
+  for (let off = -2; off <= 1; off++) occ.push(zonedTime(+p.year, +p.month - 1, +p.day + off, slot.h, slot.m, slot.tz));
+  occ.sort((a, b) => a - b);
+  return { last: [...occ].reverse().find(t => t <= nowMs), next: occ.find(t => t > nowMs) };
+}
+
+function fmtHMS(ms) {
+  ms = Math.max(0, ms);
+  const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000), s = Math.floor((ms % 60000) / 1000);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+function fmtLocalTime(ms) {
+  return new Intl.DateTimeFormat('ca-ES', { hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(ms));
+}
+function fmtDuration(ms) {
+  const total = Math.max(0, Math.round(ms / 1000));
+  const m = Math.floor(total / 60), s = total % 60;
+  return m ? `${m}m ${s}s` : `${s}s`;
+}
+function relativeDay(ms, nowMs) {
+  const key = t => new Date(t).toLocaleDateString('sv-SE');
+  if (key(ms) === key(nowMs)) return 'avui';
+  if (key(ms) === key(nowMs - 86400000)) return 'ahir';
+  return new Date(ms).toLocaleDateString('ca-ES');
+}
+
+function slotStatus(lastMs, nowMs) {
+  const runs = JOB_STATUS ? JOB_STATUS.runs
+    .filter(r => r && r.job === 'cycle')
+    .map(r => Object.assign({}, r, { s: parseTs(r.started_at), f: parseTs(r.finished_at) }))
+    .filter(r => r.s !== null) : [];
+  // No record at all, or a slot from before tracking began: say so, rather than
+  // claiming it never ran.
+  if (!runs.length || lastMs + SLOT_WINDOW_MS < Math.min(...runs.map(r => r.s))) {
+    return { cls: 'unknown', html: 'Sense registre per a aquest cicle' };
+  }
+  const run = runs.filter(r => r.s >= lastMs && r.s < lastMs + SLOT_WINDOW_MS).pop();
+  const day = relativeDay(lastMs, nowMs);
+  if (run && run.status === 'ok') {
+    const dur = run.f !== null ? ` · ${fmtDuration(run.f - run.s)}` : '';
+    return { cls: 'ok', html: `&#10003; Completat ${day} ${fmtLocalTime(run.f || run.s)}${dur}` };
+  }
+  if (run) {
+    const stage = run.stage === 'pytest' ? 'tests' : 'cicle';
+    const err = run.error ? `<span class="err">${escapeHtml(run.error)}</span>` : '';
+    return { cls: 'failed', html: `&#10007; Ha fallat ${day} ${fmtLocalTime(run.f || run.s)} · ${stage}${err}` };
+  }
+  if (nowMs < lastMs + SLOT_WINDOW_MS) return { cls: 'running', html: '&#9679; En curs o pendent' };
+  return { cls: 'missed', html: `&#9888; No s'ha executat ${day}` };
+}
+
+function renderCycles(nowMs) {
+  const rows = document.getElementById('cycleRows');
+  if (!rows) return;
+  rows.innerHTML = CYCLE_SLOTS.map(slot => {
+    const { last, next } = slotTimes(slot, nowMs);
+    const pct = ((nowMs - last) / (next - last)) * 100;
+    const st = slotStatus(last, nowMs);
+    const slotLabel = `${String(slot.h).padStart(2, '0')}:${String(slot.m).padStart(2, '0')} ${slot.tzLabel}`;
+    return `<div class="cycle-row">
+      <div class="ring" style="--pct:${pct.toFixed(1)}"></div>
+      <div class="cycle-when"><b class="mono">${fmtLocalTime(next)}</b><span>${slotLabel}</span></div>
+      <div class="cycle-status"><span class="st-${st.cls}">${st.html}</span>
+        <span class="next">Proxim en <b class="mono">${fmtHMS(next - nowMs)}</b></span></div>
+    </div>`;
+  }).join('');
+
+  const fresh = document.getElementById('freshness');
+  if (DATA_GENERATED_MS === null) { fresh.textContent = ''; return; }
+  const age = nowMs - DATA_GENERATED_MS;
+  const mins = Math.max(0, Math.floor(age / 60000));
+  const ago = mins < 60 ? `${mins} min` : `${Math.floor(mins / 60)} h ${mins % 60} min`;
+  fresh.className = 'freshness' + (age > STALE_MS ? ' stale' : '');
+  fresh.textContent = age > STALE_MS ? `⚠ Dades de fa ${ago}: el servidor pot estar aturat` : `Dades: fa ${ago}`;
+}
+
+// Header chip: the next cycle across all slots.
 function updateCountdown() {
-  const now = new Date();
-  const slots = cycleSlotsAround(now);
-  const next = slots.find(d => d > now);
-  const prev = [...slots].reverse().find(d => d <= now);
-
-  const totalMs = next - prev;
-  const remainingMs = next - now;
-  const elapsedPct = 100 - (remainingMs / totalMs) * 100;
-
-  const h = Math.floor(remainingMs / 3600000);
-  const m = Math.floor((remainingMs % 3600000) / 60000);
-  const s = Math.floor((remainingMs % 60000) / 1000);
-  document.getElementById('countdownTime').textContent =
-    `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-  document.querySelector('#countdown .ring').style.setProperty('--pct', elapsedPct.toFixed(1));
+  const nowMs = Date.now();
+  const times = CYCLE_SLOTS.map(slot => slotTimes(slot, nowMs));
+  const next = Math.min(...times.map(t => t.next));
+  const prev = Math.max(...times.map(t => t.last));
+  document.getElementById('countdownTime').textContent = fmtHMS(next - nowMs);
+  document.querySelector('#countdown .ring').style.setProperty('--pct', (100 - ((next - nowMs) / (next - prev)) * 100).toFixed(1));
+  renderCycles(nowMs);
 }
 setInterval(updateCountdown, 1000);
 updateCountdown();
@@ -1535,22 +1646,28 @@ document.getElementById('calNext').addEventListener('click', () => {
   renderCalendar();
 });
 
-// Plain data refresh, NOT a re-run of the 4h AI trading cycle. signals.csv and
-// positions.json are static files this pipeline exports on its own schedule
-// (the cycle itself every 4h, positions.json also independently every 15 min
-// via refresh_positions.yml); this just re-reads whatever is currently on
-// disk, cheaply, so the numbers feel live between real cycles.
+// Plain data refresh, NOT a re-run of the AI trading cycle. signals.csv and
+// positions.json are static files the VPS publishes on its own schedule (the
+// cycle three times a day, positions.json also every 15 min via the refresh
+// job); this just re-reads whatever is currently published, cheaply, so the
+// numbers feel live between real cycles.
 const REFRESH_MS = 45000;
 document.getElementById('refreshSecs').textContent = Math.round(REFRESH_MS / 1000);
 
 async function loadAll() {
   const bust = '?t=' + Date.now();
-  const [csvText, positionsPayload, benchmarkPayload, resetPayload] = await Promise.all([
+  const [csvText, positionsPayload, benchmarkPayload, resetPayload, jobStatusPayload] = await Promise.all([
     fetch('signals.csv' + bust).then(r => r.text()),
     fetch('positions.json' + bust).then(r => r.ok ? r.json() : null).catch(() => null),
     fetch('benchmark.json' + bust).then(r => r.ok ? r.json() : null).catch(() => null),
     fetch('history_reset.json' + bust).then(r => r.ok ? r.json() : null).catch(() => null),
+    fetch('job_status.json' + bust).then(r => r.ok ? r.json() : null).catch(() => null),
   ]);
+  JOB_STATUS = jobStatusPayload && Array.isArray(jobStatusPayload.runs) ? jobStatusPayload : null;
+  const generated = [positionsPayload, benchmarkPayload, JOB_STATUS]
+    .map(p => parseTs(p && p.generated_at)).filter(t => t !== null);
+  DATA_GENERATED_MS = generated.length ? Math.max(...generated) : null;
+  renderCycles(Date.now());
   // Independent of signals.csv, so it renders (or shows its empty state) even
   // before the first signal row exists.
   renderBenchmark(benchmarkPayload);
@@ -1597,41 +1714,118 @@ loadAll().catch(e => {
 setInterval(() => loadAll().catch(() => {}), REFRESH_MS);
 
 // ============================================================== Web Push ===
-const VAPID_PUBLIC_KEY = "BDbTj6Q5p5i_FpYJ8qj_tG1Uv_wVd4Hw4OQyQJ4eN0m6G8N_F_D3o9E_d0p4C_J4s4J3R0P3D9R0J3E6S3N9Q_E"; // Will need the real public key injected if we serve this dynamically, but since it's a static page, we could hardcode the public key here or fetch it. For now, it's just UI.
+// The bell subscribes this browser to push notifications (see web_push.py).
+// The subscription is encrypted here, with the VPS's public key, before it
+// leaves the page: the repository that stores it is public. Hidden until
+// `python web_push.py setup` has published docs/push_config.json.
 const pushBtn = document.getElementById('pushToggle');
 
-if ('serviceWorker' in navigator && 'PushManager' in window) {
-  navigator.serviceWorker.register('sw.js').then(reg => {
-    reg.pushManager.getSubscription().then(sub => {
-      if (sub) pushBtn.classList.add('active');
-    });
-
-    pushBtn.addEventListener('click', async () => {
-      let sub = await reg.pushManager.getSubscription();
-      if (sub) {
-        await sub.unsubscribe();
-        pushBtn.classList.remove('active');
-        // Notify backend to remove (stubbed)
-      } else {
-        const result = await Notification.requestPermission();
-        if (result === 'granted') {
-           // We would subscribe here using applicationServerKey
-           pushBtn.classList.add('active');
-        }
-      }
-    });
-  });
-} else {
-  pushBtn.style.display = 'none';
+function b64ToBytes(b64) {
+  const std = b64.replace(/-/g, '+').replace(/_/g, '/');
+  const bin = atob(std + '='.repeat((4 - std.length % 4) % 4));
+  return Uint8Array.from(bin, c => c.charCodeAt(0));
 }
+function bytesToB64(buf) {
+  let bin = '';
+  new Uint8Array(buf).forEach(b => { bin += String.fromCharCode(b); });
+  return btoa(bin);
+}
+async function sha256Hex(text) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+// RSA-OAEP-SHA256 wraps a one-off AES-256-GCM key -- mirrored by
+// web_push.encrypt_subscription / decrypt_subscription on the VPS.
+async function encryptSubscription(sub, spkiB64) {
+  const json = sub.toJSON();
+  const rsaKey = await crypto.subtle.importKey(
+    'spki', b64ToBytes(spkiB64), { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['encrypt']);
+  const aesKey = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt']);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const plaintext = new TextEncoder().encode(JSON.stringify({ endpoint: json.endpoint, keys: json.keys }));
+  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aesKey, plaintext);
+  const k = await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, rsaKey, await crypto.subtle.exportKey('raw', aesKey));
+  return { id: await sha256Hex(json.endpoint), v: 1, k: bytesToB64(k), iv: bytesToB64(iv), ct: bytesToB64(ct) };
+}
+
+async function setupPush() {
+  pushBtn.style.display = 'none';
+  let config = null;
+  try {
+    config = await fetch('push_config.json?t=' + Date.now()).then(r => r.ok ? r.json() : null);
+  } catch (e) { config = null; }
+  if (!config || !config.vapid_public_key || !config.subscription_public_key) return;
+
+  const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window
+    && window.crypto && crypto.subtle;
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  if (!supported) {
+    if (isIOS && !standalone) {
+      pushBtn.style.display = '';
+      pushBtn.title = 'Activar notificacions';
+      pushBtn.addEventListener('click', () => alert(
+        "A l'iPhone o l'iPad, primer afegeix aquesta pagina a la pantalla d'inici " +
+        "(Compartir > Afegir a la pantalla d'inici) i obre-la des d'alla."));
+    }
+    return;
+  }
+
+  const reg = await navigator.serviceWorker.register('sw.js');
+  const setActive = on => {
+    pushBtn.classList.toggle('active', on);
+    pushBtn.title = on ? 'Notificacions activades (clica per desactivar)' : 'Activar notificacions';
+  };
+  pushBtn.style.display = '';
+  setActive(!!(await reg.pushManager.getSubscription()));
+
+  let busy = false;
+  pushBtn.addEventListener('click', async () => {
+    if (busy) return;
+    busy = true;
+    try {
+      const existing = await reg.pushManager.getSubscription();
+      if (existing) {
+        if (!confirm('Desactivar les notificacions en aquest dispositiu?')) return;
+        const res = await githubDispatch('push_unsubscribe', { id: await sha256Hex(existing.endpoint) });
+        if (!res) return;
+        if (!res.ok) { alert("No s'han pogut desactivar: " + await res.text()); return; }
+        await existing.unsubscribe();
+        setActive(false);
+        return;
+      }
+      if (await Notification.requestPermission() !== 'granted') {
+        alert('Cal permetre les notificacions al navegador per activar-les.');
+        return;
+      }
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true, applicationServerKey: b64ToBytes(config.vapid_public_key),
+      });
+      const res = await githubDispatch('push_subscribe', await encryptSubscription(sub, config.subscription_public_key));
+      if (!res || !res.ok) {
+        await sub.unsubscribe();
+        if (res) alert("No s'han pogut activar: " + await res.text());
+        return;
+      }
+      setActive(true);
+      alert('Notificacions activades. Rebras els mateixos avisos que a Telegram quan GitHub desi la subscripcio (1-2 minuts).');
+    } catch (e) {
+      alert('Error: ' + e.message);
+    } finally {
+      busy = false;
+    }
+  });
+}
+setupPush().catch(() => { pushBtn.style.display = 'none'; });
 
 // ============================================================== Chart & Search ===
 let chart = null;
 let candlestickSeries = null;
 
 // Populates the search box's autocomplete from the bot's actual current
-// Nasdaq-50 watchlist (config.yaml's `symbols:` list, published as
-// docs/config.yaml by every cycle -- see .github/workflows/trading_bot.yml).
+// universe (config.yaml's `symbols:` list: top-25 Nasdaq-100 equities plus the
+// fixed crypto pairs, published as docs/config.yaml by every cycle).
 // This is the static fallback list; weekly_screening.yml can widen it via
 // symbols.yaml, but that file isn't published to docs/, so this is the best
 // "current universe" view available to a static dashboard. Free-text search

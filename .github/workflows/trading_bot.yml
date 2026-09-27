@@ -62,6 +62,9 @@ jobs:
           # Telegram alerts (notifications.py); a no-op with these unset.
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # Web Push (web_push.py); a no-op with these unset.
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          PUSH_SUBSCRIPTION_KEY: ${{ secrets.PUSH_SUBSCRIPTION_KEY }}
         run: python main.py --config config.yaml
 
       - name: Publish dashboard

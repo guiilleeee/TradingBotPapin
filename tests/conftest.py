@@ -21,6 +21,9 @@ def no_real_telegram(monkeypatch):
     their own fake credentials."""
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.delenv("TELEGRAM_CHAT_ID", raising=False)
+    # Same for Web Push: without these, web_push.send_to_all is a no-op.
+    monkeypatch.delenv("VAPID_PRIVATE_KEY", raising=False)
+    monkeypatch.delenv("PUSH_SUBSCRIPTION_KEY", raising=False)
 
 
 @pytest.fixture(autouse=True)

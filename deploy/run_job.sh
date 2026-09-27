@@ -51,11 +51,28 @@ if [ "$PUBLISH" = "1" ]; then
   git pull --rebase --quiet || { echo "[$JOB] git pull failed; running on the local copy."; }
 fi
 
+JOB_RC=0
 case "$JOB" in
   cycle)
-    "$PYTHON" -m pytest -q
-    "$PYTHON" main.py --config config.yaml
-    FILES="docs/index.html docs/signals.csv docs/config.yaml signals.csv trading_bot.db"
+    # A failed cycle is still recorded and published (docs/job_status.json), so
+    # the dashboard shows the failure instead of quietly going stale. The real
+    # exit code is returned at the very end, so systemd still sees the failure.
+    STARTED="$(date -u +%Y-%m-%dT%H:%M:%S+00:00)"
+    RUN_LOG="$(mktemp)"
+    STAGE=pytest
+    set +e
+    "$PYTHON" -m pytest -q 2>&1 | tee "$RUN_LOG"
+    JOB_RC=${PIPESTATUS[0]}
+    if [ "$JOB_RC" -eq 0 ]; then
+      STAGE=cycle
+      "$PYTHON" main.py --config config.yaml 2>&1 | tee "$RUN_LOG"
+      JOB_RC=${PIPESTATUS[0]}
+    fi
+    set -e
+    "$PYTHON" job_status.py record --job cycle --started "$STARTED" --rc "$JOB_RC" \
+      --stage "$STAGE" --log "$RUN_LOG" || echo "[$JOB] could not record job status."
+    rm -f "$RUN_LOG"
+    FILES="docs/job_status.json docs/index.html docs/signals.csv docs/config.yaml signals.csv trading_bot.db"
     ;;
   watch)
     "$PYTHON" volume_watch.py --config config.yaml
@@ -86,20 +103,20 @@ for f in positions.json benchmark.json; do
   fi
 done
 
-[ "$PUBLISH" = "1" ] || { echo "[$JOB] done (PUBLISH=0, nothing pushed)."; exit 0; }
+[ "$PUBLISH" = "1" ] || { echo "[$JOB] done (PUBLISH=0, nothing pushed)."; exit "$JOB_RC"; }
 
 # shellcheck disable=SC2086
 git add -f $FILES 2>/dev/null || true
 if git diff --staged --quiet; then
   echo "[$JOB] nothing changed."
-  exit 0
+  exit "$JOB_RC"
 fi
 git commit --quiet -m "chore: $JOB results (vps) [skip ci]"
 
 for attempt in 1 2 3; do
   if git push --quiet; then
     echo "[$JOB] pushed on attempt $attempt."
-    exit 0
+    exit "$JOB_RC"
   fi
   echo "[$JOB] push rejected (attempt $attempt/3); rebasing."
   git pull --rebase --quiet || { git rebase --abort 2>/dev/null || true; exit 1; }
