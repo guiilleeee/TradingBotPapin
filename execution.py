@@ -181,26 +181,30 @@ def _fetch_alpaca_position(symbol: str) -> Optional[ExistingPosition]:
     return ExistingPosition(qty=qty, avg_entry_price=avg)
 
 
-def fetch_live_equity(fallback: float) -> float:
-    """Total account equity from Alpaca, or `fallback` only if the read fails.
+def read_live_equity() -> Optional[float]:
+    """Total account equity from Alpaca, or None if it could not be read.
 
     A successful read is returned as-is, including 0: an empty account must
     show as empty, not as the simulation's starting balance.
     """
     key, secret = _alpaca_credentials()
-    if key and secret:
-        try:
-            resp = requests.get(
-                f"{ALPACA_BASE_URL}/v2/account", headers=_alpaca_headers(), timeout=HTTP_TIMEOUT
-            )
-            resp.raise_for_status()
-            equity = float(resp.json()["equity"])
-            if math.isfinite(equity):
-                return equity
-        except Exception:
-            pass
+    if not (key and secret):
+        return None
+    try:
+        resp = requests.get(
+            f"{ALPACA_BASE_URL}/v2/account", headers=_alpaca_headers(), timeout=HTTP_TIMEOUT
+        )
+        resp.raise_for_status()
+        equity = float(resp.json()["equity"])
+    except Exception:
+        return None
+    return equity if math.isfinite(equity) else None
 
-    return fallback
+
+def fetch_live_equity(fallback: float) -> float:
+    """`read_live_equity`, or `fallback` only if the read fails."""
+    equity = read_live_equity()
+    return fallback if equity is None else equity
 
 
 # ------------------------------------------------------------------- guardrails

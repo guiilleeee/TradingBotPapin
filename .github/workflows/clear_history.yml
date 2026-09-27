@@ -1,0 +1,64 @@
+name: Clear Dashboard History
+
+# Fired by the dashboard's "Esborrar historial" button (Resum tab) via a
+# repository_dispatch. Display only: it records "history cleared at <now>" in
+# docs/history_reset.json, and the dashboard (immediately) and the next
+# signals.csv export (main.py) hide every signal row older than that.
+#
+# It never touches trading_bot.db, positions, the ledger, or Alpaca -- the bot
+# still reads its full history for cost basis and the benchmark. Only this
+# workflow writes docs/history_reset.json, so it can't conflict with the VPS's
+# own result pushes. To undo, delete that file.
+
+on:
+  repository_dispatch:
+    types: [clear_history]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: clear-history
+  cancel-in-progress: false
+
+jobs:
+  clear:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Record the cut-off
+        run: |
+          mkdir -p docs
+          printf '{"cleared_at": "%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%S+00:00)" > docs/history_reset.json
+          cat docs/history_reset.json
+
+      - name: Commit
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f docs/history_reset.json
+          git commit -m "chore: clear dashboard history [skip ci]"
+
+          max_attempts=3
+          attempt=1
+          while true; do
+            if git push; then
+              echo "Pushed on attempt $attempt."
+              exit 0
+            fi
+            if [ "$attempt" -ge "$max_attempts" ]; then
+              echo "::error::git push failed after $max_attempts attempts."
+              exit 1
+            fi
+            echo "git push rejected (attempt $attempt/$max_attempts) -- rebasing and retrying."
+            if ! git pull --rebase; then
+              git rebase --abort 2>/dev/null || true
+              echo "::error::git pull --rebase hit a conflict."
+              exit 1
+            fi
+            attempt=$((attempt + 1))
+            sleep 5
+          done

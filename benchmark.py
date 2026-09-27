@@ -25,7 +25,7 @@ import json
 from typing import Any, Dict, List, Optional
 
 import data_fetcher
-from logger import BotLogger, utc_now_iso
+from logger import EQUITY_CURVE_START_KEY, BotLogger, utc_now_iso
 
 BENCHMARK_SYMBOL = "QQQ"
 DEFAULT_BENCHMARK_PATH = "benchmark.json"
@@ -51,6 +51,8 @@ def build_series(bot_logger: BotLogger) -> Dict[str, Any]:
         "generated_at": utc_now_iso(),
         "benchmark_symbol": BENCHMARK_SYMBOL,
         "first_live_trade_at": first_trade,
+        # The dashboard's equity curve starts here (the account's first real funding).
+        "equity_curve_start": bot_logger.get_meta(EQUITY_CURVE_START_KEY),
         "baseline": None,
         "points": [],
     }

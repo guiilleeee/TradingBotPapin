@@ -194,7 +194,7 @@ def test_scheduled_cycle_with_equity_market_closed_proposes_only_crypto(
 def test_live_cycle_reads_held_symbols_from_the_broker(tmp_logger, tmp_path, monkeypatch, processed):
     from models import ExistingPosition
 
-    monkeypatch.setattr(execution, "fetch_live_equity", lambda fallback: 5000.0)
+    monkeypatch.setattr(execution, "read_live_equity", lambda: 5000.0)
     monkeypatch.setattr(
         execution, "fetch_all_live_positions",
         lambda: {"EQ24": ExistingPosition(qty=2.0, avg_entry_price=50.0)},
@@ -209,7 +209,7 @@ def test_live_cycle_reads_held_symbols_from_the_broker(tmp_logger, tmp_path, mon
 def test_live_cycle_survives_a_broker_outage_on_the_position_list(
     tmp_logger, tmp_path, monkeypatch, processed
 ):
-    monkeypatch.setattr(execution, "fetch_live_equity", lambda fallback: 5000.0)
+    monkeypatch.setattr(execution, "read_live_equity", lambda: 5000.0)
 
     def boom():
         raise RuntimeError("Alpaca down")

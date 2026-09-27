@@ -62,11 +62,29 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
     p256dh            TEXT NOT NULL,
     created_at        TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """
+
+EQUITY_CURVE_START_KEY = "equity_curve_start"
 
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def parse_utc(value: Any) -> Optional[datetime]:
+    """An ISO-8601 timestamp as an aware UTC datetime, or None if it isn't one."""
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def _utc_day_start_iso() -> str:
@@ -321,6 +339,32 @@ class BotLogger:
                 return str(row["timestamp"])
         return None
 
+    # ------------------------------------------------------------------ meta
+
+    def get_meta(self, key: str) -> Optional[str]:
+        with self._conn() as conn:
+            row = conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+        return str(row["value"]) if row else None
+
+    def set_meta_once(self, key: str, value: str) -> bool:
+        """Write `key` only if it has never been set. True if this call set it."""
+        with self._conn() as conn:
+            cur = conn.execute("INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)", (key, value))
+            return cur.rowcount == 1
+
+    def record_funding_if_first(self, real_equity: Optional[float], threshold_usd: float) -> Optional[str]:
+        """Mark where the displayed equity curve starts: the first *real* balance
+        read at or above `threshold_usd`. Set once, never moved. Returns the new
+        timestamp if this call set it, else None.
+
+        `real_equity` must be None when the read failed -- a fallback figure is
+        exactly the fake balance this marker exists to hide.
+        """
+        if real_equity is None or real_equity < threshold_usd:
+            return None
+        now = utc_now_iso()
+        return now if self.set_meta_once(EQUITY_CURVE_START_KEY, now) else None
+
     # -------------------------------------------------------- push subscriptions
 
     def save_push_subscription(self, endpoint: str, auth: str, p256dh: str) -> None:
@@ -437,12 +481,19 @@ class BotLogger:
 
     # ------------------------------------------------------------------- export
 
-    def export_signals_csv(self, path: str, limit: int = 500) -> int:
-        """Flatten the newest `limit` signal rows into the dashboard's CSV."""
+    def export_signals_csv(self, path: str, limit: int = 500, since: Optional[str] = None) -> int:
+        """Flatten the newest `limit` signal rows into the dashboard's CSV.
+
+        `since` (the dashboard's "history cleared at") leaves older rows out of
+        the file only; the database keeps every row.
+        """
         with self._conn() as conn:
             rows = conn.execute(
                 "SELECT * FROM signals ORDER BY id DESC LIMIT ?", (limit,)
             ).fetchall()
+        cutoff = parse_utc(since) if since else None
+        if cutoff is not None:
+            rows = [r for r in rows if (parse_utc(r["timestamp"]) or cutoff) >= cutoff]
 
         fields = [
             "id",

@@ -16,6 +16,7 @@ Run order matters and is deliberate:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 import traceback
@@ -30,12 +31,14 @@ import notifications
 import position_metrics
 import risk_manager
 import symbol_config
-from logger import BotLogger
+from logger import BotLogger, parse_utc
 from mode import ModeSettings, resolve_is_live, resolve_mode_settings
 from models import ExistingPosition, SignalInput, TradeSignal
 
 DEFAULT_CONFIG_PATH = "config.yaml"
 DEFAULT_SYMBOLS_PATH = "symbols.yaml"
+# Written only by clear_history.yml (the dashboard's "Esborrar historial" button).
+DEFAULT_HISTORY_RESET_PATH = "docs/history_reset.json"
 
 
 # --------------------------------------------------------------------- config
@@ -325,10 +328,11 @@ def _run_cycle_body(
 
     # --- equity + sweep ---------------------------------------------------
     if is_live:
-        equity = execution.fetch_live_equity(fallback_equity)
+        funding_threshold = float(config.get("funding_threshold_usd", 10.0))
+        equity = _live_equity(bot_logger, fallback_equity, funding_threshold)
         sweep = sweep_open_positions(bot_logger, config, is_live, equity)
         if sweep.closures:
-            equity = execution.fetch_live_equity(fallback_equity)
+            equity = _live_equity(bot_logger, fallback_equity, funding_threshold)
     else:
         sweep = sweep_open_positions(bot_logger, config, is_live, fallback_equity)
         # Realised P&L already includes anything the sweep just booked, and only
@@ -432,7 +436,8 @@ def _run_cycle_body(
 
     # --- export -----------------------------------------------------------
     csv_path = config.get("csv_path", "signals.csv")
-    rows = bot_logger.export_signals_csv(csv_path)
+    cleared_at = history_cleared_at(config.get("history_reset_path", DEFAULT_HISTORY_RESET_PATH))
+    rows = bot_logger.export_signals_csv(csv_path, since=cleared_at)
     print(f"Exported {rows} signal rows to {csv_path}")
 
     # Holdings-list data for the dashboard: open positions only, never the full
@@ -456,6 +461,26 @@ def _run_cycle_body(
         print(f"benchmark.json export failed (non-fatal): {type(exc).__name__}: {exc}")
 
     return 0
+
+
+def _live_equity(bot_logger: BotLogger, fallback: float, funding_threshold: float) -> float:
+    """Alpaca equity (fallback only on a failed read); marks the first funding."""
+    real = execution.read_live_equity()
+    started = bot_logger.record_funding_if_first(real, funding_threshold)
+    if started:
+        print(f"Account funded: equity curve starts at {started} (${real:,.2f})")
+    return fallback if real is None else real
+
+
+def history_cleared_at(path: str) -> Optional[str]:
+    """`cleared_at` from the dashboard's history-reset file, or None. Never raises:
+    a missing or broken file just means nothing has been cleared."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            value = json.load(handle).get("cleared_at")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return value if isinstance(value, str) and parse_utc(value) else None
 
 
 def _held_symbols(is_live: bool, bot_logger: BotLogger) -> List[str]:

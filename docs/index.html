@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>TradingBot v2</title>
+<title>TradingBot Papin</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -310,6 +310,11 @@
   }
   .push-btn:hover { background: rgba(255,255,255,0.05); color: var(--text); }
   .push-btn.active { color: var(--accent); border-color: var(--accent); }
+  .history-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+  .history-row .bench-note { margin-top: 0; flex: 1 1 240px; }
+  .danger-btn { color: var(--live); border-color: rgba(255,92,114,.45); white-space: nowrap; }
+  .danger-btn:hover { color: var(--live); background: rgba(255,92,114,.08); }
+  .danger-btn:disabled { opacity: .5; cursor: default; }
 
   /* ------------------------------------------------------------ P&L calendar */
   .cal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-4); }
@@ -401,7 +406,7 @@
 </svg>
 
 <header>
-  <h1>TradingBot v2 <span>&mdash; Fase 3</span></h1>
+  <h1>TradingBot Papin</h1>
   <span id="modeBadge" class="mode-badge sim"><span class="dot"></span>&mdash;</span>
   <div id="countdown" class="countdown">
     <div class="ring" style="--pct:0"></div>
@@ -436,6 +441,7 @@
   <div class="panel" id="equityCurveWrap">
     <h2><svg class="icon"><use href="#i-up"/></svg>Corba de patrimoni</h2>
     <svg id="equityCurve" viewBox="0 0 680 160" preserveAspectRatio="none"></svg>
+    <div class="empty-note" id="eqEmpty" hidden></div>
     <div class="eq-tooltip" id="eqTooltip"></div>
   </div>
 
@@ -452,6 +458,15 @@
   <div class="panel">
     <h2><svg class="icon"><use href="#i-wallet"/></svg>Posicions obertes</h2>
     <div id="holdings"></div>
+  </div>
+
+  <div class="panel">
+    <h2><svg class="icon"><use href="#i-x"/></svg>Historial</h2>
+    <div class="history-row">
+      <div class="bench-note" id="historyNote">Amaga del web totes les senyals i analisis mostrades fins ara.
+        No toca operacions, posicions ni el compte d'Alpaca.</div>
+      <button id="clearHistoryBtn" class="push-btn danger-btn" type="button">Esborrar historial</button>
+    </div>
   </div>
 </section>
 
@@ -811,12 +826,42 @@ function monotonePath(xs, ys) {
 let curveState = { points: [], xs: [], ys: [], W: 680, H: 160 };
 let equityCurveDrawnOnce = false;
 
+// ISO timestamp -> epoch ms, or null. Python writes microseconds; trim to the
+// milliseconds every browser's Date parser accepts.
+function parseTs(value) {
+  if (!value) return null;
+  const ms = Date.parse(String(value).replace(/(\.\d{3})\d+/, '$1'));
+  return isFinite(ms) ? ms : null;
+}
+
+// Set by loadAll(). Live mode draws the curve only from the account's first real
+// funding (benchmark.json -> equity_curve_start); everything before it was the
+// $1,000 simulation fallback, not a real drawdown.
+let CURVE_CTX = { isLive: false, startMs: null };
+
 function renderEquityCurve(data) {
   const svg = document.getElementById('equityCurve');
+  const note = document.getElementById('eqEmpty');
+  const clear = (msg) => {
+    svg.innerHTML = '';
+    curveState = { points: [], xs: [], ys: [], W: 680, H: 160 };
+    note.textContent = msg || '';
+    note.hidden = !msg;
+  };
+
+  if (CURVE_CTX.isLive && CURVE_CTX.startMs === null) {
+    clear("El compte encara no te fons: la corba comenca amb el primer diposit.");
+    return;
+  }
   const points = data
+    .filter(r => !CURVE_CTX.isLive || (parseTs(r.timestamp) || 0) >= CURVE_CTX.startMs)
     .map(r => ({ t: r.timestamp, v: parseFloat(r.account_equity_usd) }))
     .filter(p => isFinite(p.v));
-  if (points.length < 2) { svg.innerHTML = ''; curveState = { points: [], xs: [], ys: [], W: 680, H: 160 }; return; }
+  if (points.length < 2) {
+    clear(CURVE_CTX.isLive ? "La corba es dibuixara a partir del segon cicle despres del diposit." : '');
+    return;
+  }
+  note.hidden = true;
 
   const W = 680, H = 160, PAD_X = 6, PAD_Y = 12;
   const values = points.map(p => p.v);
@@ -1269,8 +1314,13 @@ function renderAnalisi(data) {
 
 function renderResum(data, positionsPayload) {
   const newest = data[data.length - 1];
-  const eq = parseFloat(newest.account_equity_usd);
-  tweenNumber(document.getElementById('equity'), 'equity', eq, 'money');
+  const eq = newest ? parseFloat(newest.account_equity_usd) : NaN;
+  if (isFinite(eq)) {
+    tweenNumber(document.getElementById('equity'), 'equity', eq, 'money');
+  } else {
+    delete _prevValues.equity;
+    document.getElementById('equity').innerHTML = '&mdash;';
+  }
   tweenNumber(document.getElementById('count'), 'count', data.length, 'int');
 
   const pnl = data.reduce((s, r) => s + (parseFloat(r.realized_pnl_usd) || 0), 0);
@@ -1495,22 +1545,39 @@ document.getElementById('refreshSecs').textContent = Math.round(REFRESH_MS / 100
 
 async function loadAll() {
   const bust = '?t=' + Date.now();
-  const [csvText, positionsPayload, benchmarkPayload] = await Promise.all([
+  const [csvText, positionsPayload, benchmarkPayload, resetPayload] = await Promise.all([
     fetch('signals.csv' + bust).then(r => r.text()),
     fetch('positions.json' + bust).then(r => r.ok ? r.json() : null).catch(() => null),
     fetch('benchmark.json' + bust).then(r => r.ok ? r.json() : null).catch(() => null),
+    fetch('history_reset.json' + bust).then(r => r.ok ? r.json() : null).catch(() => null),
   ]);
   // Independent of signals.csv, so it renders (or shows its empty state) even
   // before the first signal row exists.
   renderBenchmark(benchmarkPayload);
 
   const raw = parseCSV(csvText.trim());
-  if (raw.length < 2) return;
+  if (raw.length < 1) return;
   const head = raw[0];
-  const data = raw.slice(1).map(r => Object.fromEntries(head.map((h, i) => [h, r[i]])));
+  let data = raw.slice(1).map(r => Object.fromEntries(head.map((h, i) => [h, r[i]])));
+
+  // "Esborrar historial": rows before the cut-off are hidden here at once; the
+  // next export also leaves them out of signals.csv. The database keeps them.
+  const clearedMs = parseTs(resetPayload && resetPayload.cleared_at);
+  if (clearedMs !== null) data = data.filter(r => (parseTs(r.timestamp) || 0) >= clearedMs);
+  renderHistoryNote(clearedMs);
+
+  CURVE_CTX = {
+    isLive: positionsPayload ? !!positionsPayload.is_live : false,
+    startMs: parseTs(benchmarkPayload && benchmarkPayload.equity_curve_start),
+  };
 
   renderResum(data, positionsPayload);
   renderAnalisi(data);
+  if (data.length === 0) {
+    document.getElementById('rows').innerHTML =
+      '<tr><td colspan="11" class="empty-note">Encara no hi ha cap senyal' +
+      (clearedMs !== null ? ' des que es va esborrar l\'historial.' : '.') + '</td></tr>';
+  }
 
   DAILY_AGG = dailyAggregates(data);
   if (!calendarView) {
@@ -1712,18 +1779,32 @@ document.getElementById('runAnalysisBtn').addEventListener('click', async () => 
   const confirmed = await openCostModal(symbol);
   if (!confirmed) return;
 
-  // The PAT or GITHUB_TOKEN needs to be configured or prompted if we want to run
-  // this purely from frontend. Cached in sessionStorage so it's only asked once
-  // per browser tab session -- never written to disk or sent anywhere but the
-  // GitHub API call right below.
+  try {
+    const res = await githubDispatch("manual_analysis", { symbol: symbol });
+    if (!res) return;
+    if (res.ok) {
+      alert("Anàlisi llançada! Consulta la pestanya Actions al teu repositori de GitHub.");
+    } else {
+      alert("Error llançant l'anàlisi: " + await res.text());
+    }
+  } catch (e) {
+    alert("Error: " + e.message);
+  }
+});
+
+// Sends a repository_dispatch as the person using the page. Returns the fetch
+// Response, or null if they cancelled the token prompt.
+async function githubDispatch(eventType, clientPayload) {
+  // Cached in sessionStorage so it's only asked once per browser tab session --
+  // never written to disk or sent anywhere but the GitHub API call below.
   let token = sessionStorage.getItem('gh_pat');
   if (!token) {
     // The dispatch is authorised by GitHub, not by this page: without a token
-    // that has write access to the repo, GitHub rejects it (401/404) and no
-    // cycle runs. Use a fine-grained PAT limited to this one repository with
-    // only "Contents: Read and write" -- never a classic token with full 'repo'.
+    // that has write access to the repo, GitHub rejects it (401/404) and nothing
+    // runs. Use a fine-grained PAT limited to this one repository with only
+    // "Contents: Read and write" -- never a classic token with full 'repo'.
     token = prompt("GitHub fine-grained token (nomes aquest repositori, permis 'Contents: Read and write'):");
-    if (!token) return;
+    if (!token) return null;
     try { sessionStorage.setItem('gh_pat', token); } catch (e) { /* private mode etc. -- fine, just re-asks next time */ }
   }
 
@@ -1732,30 +1813,50 @@ document.getElementById('runAnalysisBtn').addEventListener('click', async () => 
   // name kept pointing at a repository that no longer exists.
   const repo = `${location.hostname.split('.')[0]}/${location.pathname.split('/').filter(Boolean)[0] || ''}`;
 
+  const res = await fetch(`https://api.github.com/repos/${repo}/dispatches`, {
+    method: "POST",
+    headers: {
+      "Accept": "application/vnd.github.v3+json",
+      "Authorization": `Bearer ${token}`
+    },
+    body: JSON.stringify({ event_type: eventType, client_payload: clientPayload || {} })
+  });
+  if (res.status === 401 || res.status === 403) {
+    try { sessionStorage.removeItem('gh_pat'); } catch (e) { /* ignore */ }
+  }
+  return res;
+}
+
+function renderHistoryNote(clearedMs) {
+  const note = document.getElementById('historyNote');
+  const base = "Amaga del web totes les senyals i analisis mostrades fins ara. No toca operacions, posicions ni el compte d'Alpaca.";
+  note.textContent = clearedMs === null
+    ? base
+    : `Historial esborrat el ${new Date(clearedMs).toLocaleString('ca-ES')}. ${base}`;
+}
+
+document.getElementById('clearHistoryBtn').addEventListener('click', async () => {
+  const ok = confirm(
+    "Esborrar l'historial del web?\n\n" +
+    "S'amagaran totes les senyals i analisis mostrades fins ara (taula, corba, calendari). " +
+    "No afecta cap operacio, posicio ni el compte d'Alpaca."
+  );
+  if (!ok) return;
+
+  const btn = document.getElementById('clearHistoryBtn');
+  btn.disabled = true;
   try {
-    const res = await fetch(`https://api.github.com/repos/${repo}/dispatches`, {
-      method: "POST",
-      headers: {
-        "Accept": "application/vnd.github.v3+json",
-        "Authorization": `Bearer ${token}`
-      },
-      body: JSON.stringify({
-        event_type: "manual_analysis",
-        client_payload: { symbol: symbol }
-      })
-    });
-    
+    const res = await githubDispatch("clear_history");
+    if (!res) return;
     if (res.ok) {
-      alert("Anàlisi llançada! Consulta la pestanya Actions al teu repositori de GitHub.");
+      alert("Fet. L'historial desapareixera en 1-2 minuts, quan GitHub publiqui el canvi.");
     } else {
-      if (res.status === 401 || res.status === 403) {
-        try { sessionStorage.removeItem('gh_pat'); } catch (e) { /* ignore */ }
-      }
-      const err = await res.text();
-      alert("Error llançant l'anàlisi: " + err);
+      alert("No s'ha pogut esborrar l'historial: " + await res.text());
     }
   } catch (e) {
     alert("Error: " + e.message);
+  } finally {
+    btn.disabled = false;
   }
 });
 
