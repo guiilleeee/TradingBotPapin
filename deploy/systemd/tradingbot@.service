@@ -1,5 +1,5 @@
 # One unit for every job; the instance name is the job (cycle, watch, refresh,
-# screening). Started by the matching tradingbot-<job>.timer.
+# screening, report). Started by the matching tradingbot-<job>.timer.
 # Install: see deploy/README.md. Assumes the repo lives at /opt/tradingbot and
 # runs as the `tradingbot` user -- edit both lines below if yours differ.
 [Unit]

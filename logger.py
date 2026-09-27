@@ -231,10 +231,13 @@ class BotLogger:
         is_live: Optional[bool] = None,
         entry_price: Optional[float] = None,
         timestamp: Optional[str] = None,
+        order_id: Optional[str] = None,
     ) -> int:
         """Write a synthetic signal row for a stop-loss / take-profit auto-close.
 
         `timestamp` defaults to now; a broker-side exit found later passes its fill time.
+        `order_id` is the broker order that closed it, when there was one -- the
+        weekly report (live_report.py) matches fills back to their reason by it.
 
         The dashboard renders every row through one code path, so these blobs must
         carry the same keys a model-driven row does. Two in particular:
@@ -263,7 +266,7 @@ class BotLogger:
         final_signal = dict(decision, override_reason="automatic exit", raw_action="sell")
         execution_result = {
             "status": "success",
-            "order_id": None,
+            "order_id": order_id,
             "fill_price": price,
             "message": reason,
             "realized_pnl_usd": pnl,

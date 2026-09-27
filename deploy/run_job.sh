@@ -6,13 +6,14 @@
 #   deploy/run_job.sh watch       # volume_watch.yml     -> python volume_watch.py
 #   deploy/run_job.sh refresh     # refresh_positions.yml -> python position_metrics.py
 #   deploy/run_job.sh screening   # weekly_screening.yml -> python screening.py
+#   deploy/run_job.sh report      # (VPS only)           -> python live_report.py
 #
 # Environment (from $REPO_DIR/.env, see deploy/.env.example):
 #   PUBLISH=1   commit + push results so the GitHub Pages dashboard updates
 #               (needs push access from this server; PUBLISH=0 keeps everything local)
 set -euo pipefail
 
-JOB="${1:?usage: run_job.sh cycle|watch|refresh|screening}"
+JOB="${1:?usage: run_job.sh cycle|watch|refresh|screening|report}"
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_DIR"
 
@@ -34,7 +35,7 @@ PYTHON="$REPO_DIR/.venv/bin/python"
 #   watch, refresh   : skip this tick if busy (the next one is 15 min away)
 # The lock is released automatically when this process exits, however it exits.
 case "$JOB" in
-  cycle|screening) FLOCK_ARGS="-w 3600" ;;
+  cycle|screening|report) FLOCK_ARGS="-w 3600" ;;
   watch|refresh)   FLOCK_ARGS="-n" ;;
   *) echo "unknown job: $JOB" >&2; exit 2 ;;
 esac
@@ -86,6 +87,12 @@ case "$JOB" in
     "$PYTHON" -m pytest -q
     "$PYTHON" screening.py --output symbols.yaml
     FILES="symbols.yaml"
+    ;;
+  report)
+    # Read-only: broker fill history + trading_bot.db -> docs/live_report.json,
+    # plus the weekly Telegram / web push message.
+    "$PYTHON" live_report.py --config config.yaml --output docs/live_report.json
+    FILES="docs/live_report.json"
     ;;
 esac
 

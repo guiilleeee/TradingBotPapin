@@ -241,6 +241,13 @@
   .returns .r b.nr { color: var(--muted); font-weight: 400; }
   .empty-note { color: var(--muted); font-style: italic; padding: var(--space-3) 2px; }
 
+  /* ------------------------------------------------------ weekly report -- */
+  .report-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0 var(--space-4); }
+  table.report-table { min-width: 0; }
+  .report-table td, .report-table th { padding: 6px var(--space-2); font-size: 12.5px; }
+  .report-note { color: var(--muted); font-size: 11.5px; margin-top: var(--space-3); }
+  .report-period { color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: .4px; margin-top: var(--space-4); }
+
   /* -------------------------------------------------------- signals table */
   .wrap { overflow-x: auto; }
   table { border-collapse: collapse; width: 100%; min-width: 820px; }
@@ -442,6 +449,7 @@
   <button data-tab="resum" class="active">Resum</button>
   <button data-tab="analisi">Analisi</button>
   <button data-tab="calendari">Calendari P&amp;L</button>
+  <button data-tab="informe">Informe</button>
   <button data-tab="cercador">Cercador</button>
   <button data-tab="significats">Significats</button>
   <span class="tab-indicator" id="tabIndicator"></span>
@@ -526,6 +534,25 @@
       </div>
     </div>
     <div class="cal-grid" id="calendarGrid"></div>
+  </div>
+</section>
+
+<!-- =============================================================== Informe -->
+<!-- Weekly live-results report (live_report.py -> live_report.json), real trades only. -->
+<section id="tab-informe" class="tab">
+  <div class="panel">
+    <h2><svg class="icon"><use href="#i-clock"/></svg>Informe setmanal<span class="freshness" id="reportFreshness"></span></h2>
+    <div id="reportSummary"><div class="empty-note">Encara no hi ha cap informe. Es genera cada dilluns a les 07:00 UTC.</div></div>
+  </div>
+  <div class="report-grid">
+    <div class="panel"><h2>Sortides (setmana)</h2><div id="reportExits"></div></div>
+    <div class="panel"><h2>Per disparador (setmana)</h2><div id="reportTriggers"></div></div>
+    <div class="panel"><h2>Compres frenades per regla (setmana)</h2><div id="reportOverrides"></div></div>
+    <div class="panel"><h2>Calibratge de la confianca (historic)</h2><div id="reportCalibration"></div></div>
+  </div>
+  <div class="panel">
+    <h2>Operacions tancades aquesta setmana</h2>
+    <div class="wrap" id="reportTrades"></div>
   </div>
 </section>
 
@@ -1705,6 +1732,89 @@ async function loadAll() {
   renderCalendar();
 }
 
+// ============================================================ Informe ====
+const REPORT_EXIT_LABELS = {
+  stop_loss: 'Stop-loss', take_profit: 'Take-profit', time_exit: 'Sortida per temps',
+  model_sell: 'Venda del model', auto_close_unknown: 'Automatica', unknown: 'Desconeguda',
+};
+const REPORT_RULE_LABELS = {
+  confidence: 'Confianca insuficient', reward_risk: 'Reward:risk baix', atr_band: 'Stop fora de 1x-4x ATR',
+  earnings_blackout: 'Resultats imminents', circuit_breaker: 'Circuit breaker',
+  min_stop_distance: 'Stop massa a prop', levels_wrong_side: 'Nivells al costat equivocat',
+  levels_missing: 'Falten nivells', bad_size: 'Mida invalida', portfolio_max_positions: 'Maxim de posicions',
+  portfolio_group: 'Limit de grup', portfolio_correlation: 'Correlacio', portfolio_exposure: 'Exposicio total',
+  portfolio_unknown: 'Posicions desconegudes', absolute_position_cap: 'Limit per posicio', other: 'Altres',
+};
+
+function reportTable(headers, rows) {
+  if (!rows.length) return '<div class="empty-note">Sense dades.</div>';
+  return `<table class="report-table"><thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead>` +
+    `<tbody>${rows.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+}
+function reportNum(v, digits) {
+  return v === null || v === undefined || !isFinite(v) ? '—' : Number(v).toFixed(digits === undefined ? 2 : digits);
+}
+function reportStats(summary) {
+  const pnlCls = summary.total_realized_pnl_usd > 0 ? 'pos' : summary.total_realized_pnl_usd < 0 ? 'neg' : '';
+  return `<div class="secondary-stats">
+    <div class="stat"><b class="mono">${summary.total_closed_trades}</b><span>Operacions</span></div>
+    <div class="stat"><b class="mono ${pnlCls}">${fmtMoneySigned(summary.total_realized_pnl_usd)}</b><span>P&amp;L realitzat</span></div>
+    <div class="stat"><b class="mono">${summary.win_rate_pct === null ? '—' : reportNum(summary.win_rate_pct, 0) + '%'}</b><span>Win rate</span></div>
+    <div class="stat"><b class="mono">${reportNum(summary.avg_r_multiple)}</b><span>R mitja</span></div>
+    <div class="stat"><b class="mono">${reportNum(summary.risk_reward_ratio)}</b><span>Guany/perdua mitjans</span></div>
+    <div class="stat"><b class="mono">${reportNum(summary.avg_holding_days, 1)}</b><span>Dies de mitjana</span></div>
+  </div>`;
+}
+
+function renderInforme(report) {
+  if (!report || report.mode !== 'live' || !report.week) return;
+  const generated = parseTs(report.generated_at);
+  document.getElementById('reportFreshness').textContent =
+    generated ? 'generat ' + new Date(generated).toLocaleString('ca-ES') : '';
+  const total = report.all_time.summary;
+  const small = total.total_closed_trades < report.min_meaningful_sample;
+  document.getElementById('reportSummary').innerHTML =
+    '<div class="report-period">Darrers 7 dies</div>' + reportStats(report.week.summary) +
+    '<div class="report-period">Historic</div>' + reportStats(total) +
+    (small ? `<div class="report-note">Menys de ${report.min_meaningful_sample} operacions tancades en total: ` +
+      'les taxes encara son soroll, no una tendencia.</div>' : '') +
+    `<div class="report-note">Posicions obertes sense tancar: ${report.open_lots}. ` +
+    'Reconstruit a partir de les execucions reals d&#39;Alpaca.</div>';
+
+  const week = report.week;
+  document.getElementById('reportExits').innerHTML = reportTable(
+    ['Sortida', 'N', 'Win rate', 'P&amp;L mitja', 'Dies'],
+    week.by_close_reason.map(r => [escapeHtml(REPORT_EXIT_LABELS[r.close_reason] || r.close_reason), r.count,
+      reportNum(r.win_rate_pct, 0) + '%', fmtMoneySigned(r.avg_pnl_usd), reportNum(r.avg_holding_days, 1)]));
+  document.getElementById('reportTriggers').innerHTML = reportTable(
+    ['Disparador', 'N', 'Win rate', 'P&amp;L'],
+    week.by_trigger.map(r => [escapeHtml(r.name), r.count, reportNum(r.win_rate_pct, 0) + '%', fmtMoneySigned(r.total_pnl_usd)]));
+  const ov = week.overrides;
+  document.getElementById('reportOverrides').innerHTML =
+    `<div class="report-note" style="margin-top:0">Propostes de compra: <b class="mono">${ov.proposed_buys}</b>, executades: <b class="mono">${ov.executed_buys}</b></div>` +
+    reportTable(['Regla', 'Frenades'], Object.entries(ov.held_by_rule).map(([k, v]) => [escapeHtml(REPORT_RULE_LABELS[k] || k), v])) +
+    (Object.keys(ov.resized_by_rule).length ? reportTable(['Mida reduida per', 'N'],
+      Object.entries(ov.resized_by_rule).map(([k, v]) => [escapeHtml(REPORT_RULE_LABELS[k] || k), v])) : '');
+  const cal = report.all_time.confidence_vs_outcome;
+  document.getElementById('reportCalibration').innerHTML = reportTable(
+    ['Confianca', 'N', 'Win rate', 'P&amp;L mitja'],
+    cal.buckets.map(b => [b.confidence_bucket, b.count, reportNum(b.win_rate_pct, 0) + '%', fmtMoneySigned(b.avg_pnl_usd)])) +
+    `<div class="report-note">Correlacio confianca vs P&amp;L: <b class="mono">${reportNum(cal.confidence_vs_pnl_correlation)}</b>. ` +
+    'Si la confianca estigues ben calibrada, les franges altes guanyarien mes sovint.</div>';
+  document.getElementById('reportTrades').innerHTML = reportTable(
+    ['Tancada', 'Simbol', 'Entrada', 'Sortida', 'P&amp;L', 'R', 'Conf.', 'Disparador', 'Motiu'],
+    week.trades.map(t => [new Date(parseTs(t.closed_date)).toLocaleDateString('ca-ES'), escapeHtml(t.symbol),
+      reportNum(t.entry_price), reportNum(t.exit_price),
+      `<span class="${t.realized_pnl_usd > 0 ? 'pos' : t.realized_pnl_usd < 0 ? 'neg' : ''}">${fmtMoneySigned(t.realized_pnl_usd)}</span>`,
+      reportNum(t.r_multiple), reportNum(t.entry_confidence), escapeHtml(t.trigger_reason),
+      escapeHtml(REPORT_EXIT_LABELS[t.close_reason] || t.close_reason)]));
+}
+
+function loadReport() {
+  return fetch('live_report.json?t=' + Date.now())
+    .then(r => r.ok ? r.json() : null).catch(() => null).then(renderInforme);
+}
+
 renderGlossaryTab();
 wireGlossarySearch();
 moveTabIndicator(document.querySelector('nav.tabs button.active'));
@@ -1713,6 +1823,7 @@ loadAll().catch(e => {
     '<tr><td colspan="11">No s\'ha pogut carregar signals.csv: ' + escapeHtml(String(e)) + '</td></tr>';
 });
 setInterval(() => loadAll().catch(() => {}), REFRESH_MS);
+loadReport();  // weekly file; loaded once per page view
 
 // ============================================================== Web Push ===
 // The bell subscribes this browser to push notifications (see web_push.py).

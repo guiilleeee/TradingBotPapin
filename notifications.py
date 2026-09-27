@@ -179,5 +179,19 @@ def send_screening_failure_alert(is_live: bool, reason: str) -> None:
     _notify(f"{_prefix(is_live)}SCREENING FAILED: {_first_line(reason)}")
 
 
+def send_weekly_report(subject: str, body: str) -> None:
+    """The weekly live report: full text to Telegram, the subject line to Web
+    Push. Never raises, like every alert here."""
+    if telegram_configured():
+        try:
+            _send_telegram(subject, body)
+        except Exception as e:  # noqa: BLE001
+            logging.error(f"Telegram push failed: {_sanitize(str(e))}")
+    try:
+        web_push.send_to_all("TradingBot Papin", _sanitize(" ".join(subject.split())[:300]))
+    except Exception as e:  # noqa: BLE001
+        logging.error(f"Web push failed: {_sanitize(str(e))}")
+
+
 def send_volume_wake_alert(symbol: str, price: float, trigger_reasons: List[str], wake_action: str) -> None:
     _notify(f"WAKE-UP {wake_action} {symbol} @ {_fmt_usd(price)}")

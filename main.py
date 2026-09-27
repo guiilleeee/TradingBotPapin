@@ -150,6 +150,7 @@ class Closure:
     qty: float
     pnl: float
     entry_price: float
+    order_id: Optional[str] = None
 
 
 @dataclass
@@ -255,7 +256,7 @@ def reconcile_bracket_exits(bot_logger: BotLogger, equity: float) -> List[Closur
         bot_logger.log_auto_close_signal(
             symbol=fill["symbol"], reason=reason, price=fill["exit_price"], qty=fill["qty"],
             pnl=pnl, equity=equity, is_live=True, entry_price=fill["entry_price"],
-            timestamp=filled_at.isoformat() if filled_at else None,
+            timestamp=filled_at.isoformat() if filled_at else None, order_id=fill["leg_id"],
         )
         if filled_at is not None and now - filled_at <= BRACKET_EXIT_ALERT_WINDOW:
             notifications.send_auto_close_alert(True, fill["symbol"], fill["qty"], fill["exit_price"])
@@ -384,7 +385,8 @@ def sweep_stale_bracketed_positions(
         bot_logger.record_pnl(symbol, pnl)
         result.closed_symbols.add(symbol)
         result.closures.append(Closure(symbol=symbol, reason=reason, price=fill, qty=qty,
-                                       pnl=pnl, entry_price=position.avg_entry_price))
+                                       pnl=pnl, entry_price=position.avg_entry_price,
+                                       order_id=exec_result.order_id))
         print(f"  [time-exit] {symbol}: closed at {fill:.6g}, P&L {pnl:+.2f} USD")
     return result
 
@@ -482,13 +484,17 @@ def sweep_open_positions(
                 continue
             fill = float(exec_result.fill_price or price)
             qty = float(exec_result.qty or qty)
+            order_id = exec_result.order_id
+        else:
+            order_id = None
 
         pnl = (fill - entry) * qty
         bot_logger.record_pnl(symbol, pnl)
         bot_logger.close_simulated_position(symbol)
         result.closed_symbols.add(symbol)
         result.closures.append(
-            Closure(symbol=symbol, reason=reason, price=fill, qty=qty, pnl=pnl, entry_price=entry)
+            Closure(symbol=symbol, reason=reason, price=fill, qty=qty, pnl=pnl, entry_price=entry,
+                    order_id=order_id)
         )
         print(f"  [sweep] {symbol}: closed at {fill:.6g}, P&L {pnl:+.2f} USD")
 
@@ -596,6 +602,7 @@ def _run_cycle_body(
             equity=equity,
             is_live=is_live,
             entry_price=closure.entry_price,
+            order_id=closure.order_id,
         )
         notifications.send_auto_close_alert(is_live, closure.symbol, closure.qty, closure.price)
 

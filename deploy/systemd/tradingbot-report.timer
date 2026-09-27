@@ -1,0 +1,13 @@
+# Weekly live-results report (live_report.py), Monday 07:00 UTC -- after the
+# 06:00 screen. Read-only against the broker; writes docs/live_report.json and
+# sends the weekly Telegram / web push summary.
+[Unit]
+Description=TradingBot weekly live-results report
+
+[Timer]
+OnCalendar=Mon *-*-* 07:00:00 UTC
+Persistent=true
+Unit=tradingbot@report.service
+
+[Install]
+WantedBy=timers.target

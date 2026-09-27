@@ -22,3 +22,6 @@ REPO=/opt/tradingbot
 
 # Weekly screen, Monday 06:00 UTC.
 0 6 * * 1     bash $REPO/deploy/run_job.sh screening >> $REPO/logs/screening.log 2>&1
+
+# Weekly live-results report, Monday 07:00 UTC (after the screen).
+0 7 * * 1     bash $REPO/deploy/run_job.sh report    >> $REPO/logs/report.log 2>&1

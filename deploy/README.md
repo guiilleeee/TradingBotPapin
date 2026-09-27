@@ -10,6 +10,7 @@ blocks are commented out. The VPS runs the same entry points:
 | `watch` | `volume_watch.yml` | `python volume_watch.py --config config.yaml` | every 15 min |
 | `refresh` | `refresh_positions.yml` | `python position_metrics.py --config config.yaml` | every 15 min (+5) |
 | `screening` | `weekly_screening.yml` | `pytest -q` then `python screening.py --output symbols.yaml` | Monday 06:00 UTC |
+| `report` | (none) | `python live_report.py --config config.yaml --output docs/live_report.json` | Monday 07:00 UTC |
 
 `manual_analysis.yml` is left out. It's triggered from the dashboard via
 `repository_dispatch`, which only GitHub Actions can receive.
@@ -148,7 +149,8 @@ cp /opt/tradingbot/deploy/systemd/tradingbot@.service   /etc/systemd/system/
 cp /opt/tradingbot/deploy/systemd/tradingbot-*.timer    /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now tradingbot-cycle.timer tradingbot-watch.timer \
-                       tradingbot-refresh.timer tradingbot-screening.timer
+                       tradingbot-refresh.timer tradingbot-screening.timer \
+                       tradingbot-report.timer
 systemctl list-timers 'tradingbot-*'        # shows the next run of each
 ```
 
