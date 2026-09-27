@@ -9,7 +9,7 @@ Run order matters and is deliberate:
   4. snapshot equity + QQQ for the benchmark
   5. choose symbols: explicit --trigger-symbols, or the funnel over the universe
      (every held symbol plus the top-N ranked candidates -- see funnel.py)
-  6. per symbol: circuit breaker, data, model, risk manager, [approval], execution, log
+  6. per symbol: circuit breaker, data, model, risk manager, execution, log
   7. export the dashboard CSV, positions.json, benchmark.json
 """
 
@@ -22,7 +22,6 @@ import traceback
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-import approval
 import benchmark
 import data_fetcher
 import execution
@@ -33,7 +32,7 @@ import risk_manager
 import symbol_config
 from logger import BotLogger
 from mode import ModeSettings, resolve_is_live, resolve_mode_settings
-from models import ExecutionResult, ExistingPosition, SignalInput, TradeSignal
+from models import ExistingPosition, SignalInput, TradeSignal
 
 DEFAULT_CONFIG_PATH = "config.yaml"
 DEFAULT_SYMBOLS_PATH = "symbols.yaml"
@@ -301,6 +300,12 @@ def _run_cycle_body(
 ) -> int:
     settings: ModeSettings = resolve_mode_settings(is_live, config)
 
+    if config.get("approval_mode") is True:
+        # Manual approval was removed; refuse rather than trade unapproved while
+        # the config claims every order waits for a human.
+        raise ValueError("approval_mode: true is no longer supported (manual approval was "
+                         "removed); set approval_mode: false in config.yaml")
+
     bot_logger = BotLogger(config.get("db_path", "trading_bot.db"))
     provider_name, generate_signal = get_provider(config)
 
@@ -347,7 +352,7 @@ def _run_cycle_body(
             is_live=is_live,
             entry_price=closure.entry_price,
         )
-        notifications.send_auto_close_alert(is_live, closure.symbol, closure.reason, closure.pnl)
+        notifications.send_auto_close_alert(is_live, closure.symbol, closure.qty, closure.price)
 
     print(f"Equity: ${equity:,.2f}  (auto-closed this cycle: "
           f"{sorted(sweep.closed_symbols) or 'none'})")
@@ -593,39 +598,7 @@ def _process_symbol(
     )
 
     exec_result = None
-    if final.action != "hold" and is_live and approval.approval_enabled(config):
-        final, current_price, exec_result = _approval_gate(
-            symbol=symbol,
-            raw=raw,
-            final=final,
-            current_price=current_price,
-            config=config,
-            equity=equity,
-            is_live=is_live,
-            today_loss_pct=today_loss_pct,
-            circuit_breaker_loss_pct=circuit_breaker_loss_pct,
-            max_risk_pct=max_risk_pct,
-            max_absolute_position_pct=max_absolute_position_pct,
-            min_confidence=settings.min_confidence,
-            min_reward_risk_ratio=min_reward_risk_ratio,
-        )
-        if exec_result is None:
-            # Re-read the holding too, not just the price: another cycle (a
-            # wake-up running alongside this one) may have bought or sold this
-            # symbol during the wait, and the duplicate-buy / naked-sell guards
-            # must judge the position as it is now. A failed lookup is a skip.
-            try:
-                existing_position = execution.fetch_existing_position(
-                    symbol=symbol, is_live=is_live, bot_logger=bot_logger
-                )
-            except Exception as exc:  # noqa: BLE001
-                exec_result = ExecutionResult(
-                    status="skipped",
-                    message=f"approved, but the position re-check failed ({type(exc).__name__}); "
-                            "order not submitted",
-                )
-
-    if final.action != "hold" and exec_result is None:
+    if final.action != "hold":
         exec_result = execution.execute_trade(
             signal=final,
             current_price=current_price,
@@ -647,10 +620,8 @@ def _process_symbol(
             is_live=is_live,
             symbol=symbol,
             action=final.action,
-            size_pct=final.position_size_pct,
+            qty=exec_result.qty,
             price=float(exec_result.fill_price or current_price),
-            confidence=final.confidence,
-            reasoning=final.reasoning,
         )
 
     print(
@@ -659,79 +630,6 @@ def _process_symbol(
         + (f" | override: {final.override_reason}" if final.override_reason else "")
         + (f" | exec: {exec_result.status} - {exec_result.message}" if exec_result else "")
     )
-
-
-def _approval_gate(
-    *,
-    symbol: str,
-    raw: Any,
-    final: TradeSignal,
-    current_price: float,
-    config: Dict[str, Any],
-    equity: float,
-    is_live: bool,
-    today_loss_pct: float,
-    circuit_breaker_loss_pct: float,
-    max_risk_pct: float,
-    max_absolute_position_pct: float,
-    min_confidence: float,
-    min_reward_risk_ratio: float,
-) -> Tuple[TradeSignal, float, Optional[ExecutionResult]]:
-    """Hold a live order until a human approves it (approval.py).
-
-    Returns (final, current_price, exec_result). A non-None exec_result means
-    "do not execute; log this skip instead". On approval the price is re-fetched
-    and the model's raw signal re-validated against it: up to ten minutes can
-    pass, and a stop the price has already crossed must not go out as a bracket.
-    """
-    timeout = approval.approval_timeout_seconds(config)
-    print(f"- {symbol}: {final.action} awaiting approval (up to {int(timeout)}s)...")
-    decision = approval.request_approval(
-        symbol=symbol,
-        action=final.action,
-        size_pct=final.position_size_pct,
-        price=current_price,
-        stop_loss=final.stop_loss_price,
-        take_profit=final.take_profit_price,
-        confidence=final.confidence,
-        reasoning=final.reasoning,
-        equity=equity,
-        timeout_seconds=timeout,
-    )
-    if not decision.approved:
-        notifications.send_approval_outcome_alert(is_live, symbol, final.action, decision.outcome)
-        return final, current_price, ExecutionResult(
-            status="skipped",
-            message=f"approval {decision.outcome}: {decision.detail}; order not submitted",
-        )
-
-    try:
-        fresh_price = data_fetcher.latest_price(data_fetcher.fetch_ohlcv(symbol))
-    except Exception as exc:  # noqa: BLE001 - no fresh price, no order
-        return final, current_price, ExecutionResult(
-            status="skipped",
-            message=f"approved, but the price re-check failed ({type(exc).__name__}); order not submitted",
-        )
-
-    revalidated = risk_manager.validate(
-        raw=raw,
-        current_price=fresh_price,
-        today_realized_loss_pct=today_loss_pct,
-        circuit_breaker_loss_pct=circuit_breaker_loss_pct,
-        max_risk_pct=max_risk_pct,
-        max_absolute_position_pct=max_absolute_position_pct,
-        min_confidence=min_confidence,
-        min_reward_risk_ratio=min_reward_risk_ratio,
-    )
-    if revalidated.action != final.action:
-        return revalidated, fresh_price, ExecutionResult(
-            status="skipped",
-            message=(
-                f"approved, but no longer valid at the re-checked price {fresh_price:.6g}: "
-                f"{revalidated.override_reason}; order not submitted"
-            ),
-        )
-    return revalidated, fresh_price, None
 
 
 def _update_ledger(

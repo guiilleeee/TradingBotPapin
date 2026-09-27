@@ -1,4 +1,4 @@
-# Full trading cycle (funnel -> model -> risk -> [approval] -> execution).
+# Full trading cycle (funnel -> model -> risk -> execution).
 #
 # Unlike GitHub's UTC-only cron, systemd takes a time zone, so the two equity
 # slots are pinned to New York wall-clock time and follow US DST on their own --

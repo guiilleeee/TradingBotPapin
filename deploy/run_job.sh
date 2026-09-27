@@ -29,7 +29,7 @@ PYTHON="$REPO_DIR/.venv/bin/python"
 # groups: a watch tick can start a full trading cycle in-process, so separate
 # locks would let a wake-up cycle and a scheduled cycle trade side by side --
 # and every job shares this one git working tree and trading_bot.db. Holding
-# the lock covers everything, including a ten-minute wait for approval.
+# the lock covers everything.
 #   cycle, screening : wait up to 1h for the lock (a scheduled run must happen)
 #   watch, refresh   : skip this tick if busy (the next one is 15 min away)
 # The lock is released automatically when this process exits, however it exits.

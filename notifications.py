@@ -1,22 +1,18 @@
 """Outbound alerts, delivered as Telegram messages from the bot to one chat.
 
-The bot calls the Telegram Bot API over plain HTTPS: `sendMessage` to deliver,
-`getUpdates` to read button taps. No webhook and no inbound endpoint on the
-bot's side -- which is what a short-lived GitHub Actions job or a systemd timer
-can actually use. approval.py builds its approve/reject round-trip on
-`telegram_call`.
+The bot calls the Telegram Bot API's `sendMessage` over plain HTTPS. It only
+ever sends; it never reads replies or waits on anyone.
 
 Configuration (environment, like every other secret):
   TELEGRAM_BOT_TOKEN  the token @BotFather issued. Whoever holds it controls
                       the bot, so it is redacted everywhere (secrets_redaction).
-  TELEGRAM_CHAT_ID    the numeric id of the one chat that receives alerts and
-                      may answer approvals.
+  TELEGRAM_CHAT_ID    the numeric id of the one chat that receives alerts.
 
 Every public alert function is fire-and-forget: it never raises, so an alert
 failure can never take a trading cycle down with it. With either variable unset
 (or malformed), every alert is a silent no-op. Text passes through
 secrets_redaction.sanitize before leaving the process, and is sent as plain text
-(no parse_mode) so model reasoning can never be read as markup.
+(no parse_mode).
 
 Web push is NOT implemented: the dashboard is a static page with nowhere to
 store subscriptions. `_send_web_push` stays a documented no-op.
@@ -118,65 +114,65 @@ def send_alert(subject: str, message: str, config: Optional[dict] = None) -> Non
             logging.error(f"Telegram push failed: {_sanitize(str(e))}")
 
 
-def _notify(subject: str, message: str) -> None:
-    """Every typed alert below lands here: Telegram if configured, else nothing."""
+def _notify(line: str) -> None:
+    """Every typed alert below lands here: one line to Telegram if configured."""
     if not telegram_configured():
         return
+    line = " ".join(str(line).split())[:300]
     try:
-        _send_telegram(subject, message)
+        _send_telegram(line, "")
     except Exception as e:  # noqa: BLE001 - an alert must never break a cycle
         logging.error(f"Telegram push failed: {_sanitize(str(e))}")
 
 
-def _mode(is_live: bool) -> str:
-    return "REAL" if is_live else "SIMULACIO"
+def _prefix(is_live: bool) -> str:
+    return "" if is_live else "[SIM] "
+
+
+def _fmt_qty(qty: Optional[float]) -> str:
+    if qty is None:
+        return ""
+    return f"{float(qty):.8f}".rstrip("0").rstrip(".") + " "
+
+
+def _fmt_usd(price: float) -> str:
+    price = float(price)
+    return f"${price:,.2f}" if abs(price) >= 1 else f"${price:.6g}"
+
+
+def _first_line(text: str) -> str:
+    return (str(text or "").strip().splitlines() or [""])[0]
 
 
 # ------------------------------------------------------------- typed alerts
+# One short line per event, no model reasoning: "BUY 10 AAPL @ $182.30".
 
 
 def send_trade_alert(
-    is_live: bool,
-    symbol: str,
-    action: str,
-    size_pct: float,
-    price: float,
-    confidence: float,
-    reasoning: str,
+    is_live: bool, symbol: str, action: str, qty: Optional[float], price: float
 ) -> None:
-    _notify(
-        f"[{_mode(is_live)}] {action.upper()} {symbol}",
-        f"Preu {price:.6g} | mida {size_pct:.2f}% | conf {confidence:.2f}\n\n{reasoning}",
-    )
+    _notify(f"{_prefix(is_live)}{action.upper()} {_fmt_qty(qty)}{symbol} @ {_fmt_usd(price)}")
+
+
+def send_auto_close_alert(is_live: bool, symbol: str, qty: Optional[float], price: float) -> None:
+    send_trade_alert(is_live, symbol, "sell", qty, price)
 
 
 def send_circuit_breaker_alert(is_live: bool, today_loss_pct: float, threshold_pct: float) -> None:
-    _notify(
-        f"[{_mode(is_live)}] Circuit breaker activat",
-        f"Perdua realitzada d'avui {today_loss_pct:.2f}% (limit -{abs(threshold_pct):.2f}%). "
-        "No s'obriran noves operacions fins dema (UTC).",
-    )
-
-
-def send_auto_close_alert(is_live: bool, symbol: str, reason: str, pnl: float) -> None:
-    _notify(f"[{_mode(is_live)}] Tancament automatic {symbol}", f"P&L {pnl:+.2f} USD\n\n{reason}")
+    _notify(f"{_prefix(is_live)}CIRCUIT BREAKER {today_loss_pct:.2f}% (limit -{abs(threshold_pct):.2f}%)")
 
 
 def send_cycle_failure_alert(is_live: bool, summary: str) -> None:
-    _notify(f"[{_mode(is_live)}] Cicle fallit", summary)
-
-
-def send_approval_outcome_alert(is_live: bool, symbol: str, action: str, outcome: str) -> None:
-    _notify(f"[{_mode(is_live)}] {action.upper()} {symbol}: {outcome}", f"Ordre no enviada ({outcome}).")
+    _notify(f"{_prefix(is_live)}CYCLE FAILED: {_first_line(summary)}")
 
 
 def send_screening_complete_alert(is_live: bool, symbols: List[str], error: Exception = None) -> None:
-    _notify(f"[{_mode(is_live)}] Cribratge setmanal", f"{len(symbols)} accions: {', '.join(symbols)}")
+    _notify(f"{_prefix(is_live)}SCREENING DONE: {len(symbols)} symbols")
 
 
 def send_screening_failure_alert(is_live: bool, reason: str) -> None:
-    _notify(f"[{_mode(is_live)}] Cribratge setmanal fallit", reason)
+    _notify(f"{_prefix(is_live)}SCREENING FAILED: {_first_line(reason)}")
 
 
 def send_volume_wake_alert(symbol: str, price: float, trigger_reasons: List[str], wake_action: str) -> None:
-    _notify(f"Wake-up {wake_action} {symbol}", f"Preu {price:.6g}: {', '.join(trigger_reasons)}")
+    _notify(f"WAKE-UP {wake_action} {symbol} @ {_fmt_usd(price)}")

@@ -17,8 +17,8 @@ permissions:
 
 concurrency:
   group: volume-watch
-  # Never cancel a running watch: it may be mid-cycle -- holding a live order
-  # for approval, or between an Alpaca fill and the commit that records it.
+  # Never cancel a running watch: it may be mid-cycle -- between an Alpaca fill
+  # and the commit that records it.
   # Cancelling there kills the process before trading_bot.db is pushed, losing
   # the ledger row a bot-managed exit needs. A tick that arrives meanwhile waits
   # as the single pending run (GitHub keeps at most one; newer ticks replace it).

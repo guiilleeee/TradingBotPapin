@@ -98,7 +98,7 @@ def validate(
             # sits above the price (or target below it) sized and passed like a
             # sane one -- and went to the broker as an inverted bracket. It is
             # also exactly what a long looks like after the price has already
-            # fallen through the stop, e.g. while approval.py waited for a tap.
+            # fallen through the stop.
             reasons.append(
                 f"buy levels are on the wrong side of price {current_price:.6g} "
                 f"(stop-loss {stop:.6g} must be below it"

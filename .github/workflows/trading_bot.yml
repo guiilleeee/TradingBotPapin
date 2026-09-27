@@ -59,8 +59,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
           ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
-          # Telegram (alerts + approval_mode). Alerts are a no-op with these unset;
-          # approval_mode fails closed without them (notifications.py, approval.py).
+          # Telegram alerts (notifications.py); a no-op with these unset.
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python main.py --config config.yaml

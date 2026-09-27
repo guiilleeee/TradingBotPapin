@@ -24,8 +24,7 @@ def settings(is_live=False, min_confidence=0.5):
 
 
 def stub_market(monkeypatch, prices):
-    """`prices` maps symbol -> price, or symbol -> list of prices returned in turn
-    (the approval gate re-fetches the price after an approval)."""
+    """`prices` maps symbol -> price, or symbol -> list of prices returned in turn."""
     queues = {s: (list(p) if isinstance(p, list) else [p]) for s, p in prices.items()}
 
     def fake_fetch(symbol, period=None, interval="1d"):

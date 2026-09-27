@@ -12,6 +12,6 @@ Type=oneshot
 User=tradingbot
 WorkingDirectory=/opt/tradingbot
 ExecStart=/bin/bash /opt/tradingbot/deploy/run_job.sh %i
-# An approval-mode cycle can legitimately wait 10 min per proposed trade.
+# cycle and screening may wait up to 1h for the lock before they even start.
 TimeoutStartSec=2h
 Nice=5

@@ -44,12 +44,14 @@ sudo -u tradingbot nano /opt/tradingbot/.env
 chmod 600 /opt/tradingbot/.env
 ```
 
-### 3b. Telegram (alerts + approvals)
+### 3b. Telegram (alerts)
+
+The bot sends one line per event (`BUY 10 AAPL @ $182.30`). It never waits for a
+reply; trading is fully autonomous.
 
 1. In Telegram, open **@BotFather**, send `/newbot`, and follow the prompts. It
-   replies with the bot token (`123456789:AA...`). That token controls the bot:
-   whoever has it can read and answer your approval requests. Never commit it,
-   paste it into chats, or post it anywhere.
+   replies with the bot token (`123456789:AA...`). That token controls the bot,
+   so never commit it, paste it into chats, or post it anywhere.
 2. Open a chat with your new bot and send it any message (a bot can't message
    you first).
 3. Get your chat id from the server:
@@ -66,24 +68,16 @@ Put both values in two places:
 2. **GitHub:** repo → Settings → Secrets and variables → Actions →
    `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` (used by manual Actions runs)
 
-Only taps from that chat count as approvals. If the token ever leaks, send
-`/revoke` to @BotFather and update both places with the new token.
+If the token ever leaks, send `/revoke` to @BotFather and update both places
+with the new token.
 
-The bot reads button taps with `getUpdates`, so the bot must **not** have a
-webhook set, and nothing else may poll it. Either problem only makes approvals
-time out (no trade), never approve by mistake. To clear a webhook:
-`curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook"`.
-
-Test it from the server before you turn on `approval_mode`:
+Test it from the server:
 
 ```bash
 . /opt/tradingbot/.env
 curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-     -H "Content-Type: application/json" \
-     -d "{\"chat_id\": \"${TELEGRAM_CHAT_ID}\", \"text\": \"Prova\",
-          \"reply_markup\": {\"inline_keyboard\": [[{\"text\": \"Aprovar\", \"callback_data\": \"test:approve\"}]]}}"
-# The phone should show the message with an "Aprovar" button. Tap it, then:
-curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates" | grep -o '"data":"test:approve"'
+     -d chat_id="${TELEGRAM_CHAT_ID}" -d text="Prova"
+# The phone should show "Prova".
 ```
 
 ### 4. Let the server push (only if `PUBLISH=1`)
@@ -175,10 +169,3 @@ lock belongs to the process, so it's released on any exit, including a crash or
 `kill -9`. Nothing cancels a running job the way GitHub's `cancel-in-progress`
 did. systemd also never starts a second copy of a oneshot unit that's still
 running.
-
-## Approval mode on the VPS
-
-It works the same as on Actions: a Telegram message with Aprovar / Rebutjar
-buttons, and the job waits up to `approval_timeout_seconds` per proposed trade.
-`TimeoutStartSec=2h` in the unit leaves room for several approvals in one cycle.
-See `approval_mode` in `config.yaml`.
