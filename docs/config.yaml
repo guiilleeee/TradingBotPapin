@@ -19,8 +19,10 @@ fallback_equity_usd: 1000.0
 # Alpaca balance at or above this -- the account's first real deposit. Set once.
 funding_threshold_usd: 10.0
 
-# Halt trading for the rest of the UTC day once today's realised loss reaches this
-# percentage of equity.
+# Block new buys for the rest of the UTC day once today's realised loss reaches
+# this percentage of equity. Sells stay allowed (the model can still cut a loser),
+# and trading resumes by itself at 00:00 UTC. Live bracket stop-outs at the broker
+# count too: each cycle books them from Alpaca's order history first.
 circuit_breaker_loss_pct: 3.0
 
 # Percent of equity to risk per trade. Position size is derived from this and the
@@ -35,10 +37,63 @@ max_absolute_position_pct: 20.0
 # split above. A trade below this is overridden to hold by risk_manager.py.
 min_reward_risk_ratio: 1.5
 
+# A new buy's stop-loss must sit between these multiples of the 14-day ATR from
+# price. Tighter is inside normal daily noise; wider sizes the position down to
+# almost nothing. 0 disables a bound. Buy only; an unknown ATR skips the rule.
+min_stop_atr_multiple: 1.0
+max_stop_atr_multiple: 4.0
+
+# Close a position held max_holding_days (calendar days) that is still within
+# +/-min_move_pct of its entry -- it ties up cash and a portfolio slot. Checked
+# by every cycle's sweep, bracketed live positions included (their bracket legs
+# are cancelled first). Positions bought outside the bot are never touched.
+time_exit:
+  enabled: true
+  max_holding_days: 10
+  min_move_pct: 2.0
+
+# No new buy when the next earnings report is this many calendar days away or
+# fewer (0 = today). A bracket held through an earnings gap can lose far past its
+# stop. 0 disables the rule; crypto and unknown dates are never blocked.
+earnings_blackout_days: 2
+
 # Confidence thresholds. These are read by separate code paths -- the live path
 # cannot reach the simulation value (see mode.py).
 min_confidence_live: 0.60
 min_confidence_simulation: 0.40
+
+# ---------------------------------------------------------------------- portfolio
+# Limits on a new buy given what is already held (portfolio.py). Like the rules
+# above, these can only shrink a buy or turn it into a hold -- never a sell.
+#   max_open_positions      -- no new buy once this many positions are open.
+#   max_gross_exposure_pct  -- total held value as % of equity; a buy is cut to
+#                              the room left, or held if under min_position_pct.
+#   groups                  -- at most max_positions held per group (by explicit
+#                              symbol list, or by asset_class).
+#   correlation             -- daily-return correlation over lookback_sessions,
+#                              from the funnel's own download. At most
+#                              max_correlated_positions (including the new one)
+#                              may be correlated at >= threshold.
+portfolio:
+  max_open_positions: 6
+  max_gross_exposure_pct: 80.0
+  min_position_pct: 1.0
+  groups:
+    crypto:
+      asset_class: crypto
+      max_positions: 2
+    semiconductors:
+      symbols: [NVDA, AMD, AVGO, MU, QCOM, ASML, AMAT, LRCX, KLAC, MRVL, ADI, TXN, INTC, NXPI, MCHP, ON, ARM, GFS]
+      max_positions: 2
+    megacap_platforms:
+      symbols: [AAPL, MSFT, AMZN, GOOGL, GOOG, META]
+      max_positions: 2
+  correlation:
+    enabled: true
+    lookback_sessions: 60
+    threshold: 0.75
+    max_correlated_positions: 2
+    min_overlap_sessions: 30
 
 # ---------------------------------------------------------------- approval mode
 # The bot trades fully autonomously: no order ever waits for a human. Manual
