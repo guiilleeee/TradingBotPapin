@@ -1,0 +1,80 @@
+{
+  "generated_at": "2026-09-28T07:00:27.116945+00:00",
+  "mode": "live",
+  "fills_read": 0,
+  "open_lots": 0,
+  "min_meaningful_sample": 30,
+  "week": {
+    "start": "2026-09-21T07:00:27.116945+00:00",
+    "summary": {
+      "total_closed_trades": 0,
+      "wins": 0,
+      "losses": 0,
+      "breakeven": 0,
+      "win_rate_pct": null,
+      "avg_win_usd": null,
+      "avg_loss_usd": null,
+      "risk_reward_ratio": null,
+      "total_realized_pnl_usd": 0,
+      "avg_r_multiple": null,
+      "avg_holding_days": null
+    },
+    "by_asset_class": [],
+    "by_trigger": [],
+    "by_close_reason": [],
+    "confidence_vs_outcome": {
+      "trades_with_confidence": 0,
+      "trades_missing_confidence": 0,
+      "buckets": [],
+      "confidence_vs_pnl_correlation": null
+    },
+    "overrides": {
+      "proposed_buys": 20,
+      "executed_buys": 0,
+      "held_by_rule": {
+        "confidence": 10,
+        "reward_risk": 4
+      },
+      "resized_by_rule": {
+        "absolute_position_cap": 1
+      }
+    },
+    "trades": []
+  },
+  "all_time": {
+    "start": null,
+    "summary": {
+      "total_closed_trades": 0,
+      "wins": 0,
+      "losses": 0,
+      "breakeven": 0,
+      "win_rate_pct": null,
+      "avg_win_usd": null,
+      "avg_loss_usd": null,
+      "risk_reward_ratio": null,
+      "total_realized_pnl_usd": 0,
+      "avg_r_multiple": null,
+      "avg_holding_days": null
+    },
+    "by_asset_class": [],
+    "by_trigger": [],
+    "by_close_reason": [],
+    "confidence_vs_outcome": {
+      "trades_with_confidence": 0,
+      "trades_missing_confidence": 0,
+      "buckets": [],
+      "confidence_vs_pnl_correlation": null
+    },
+    "overrides": {
+      "proposed_buys": 20,
+      "executed_buys": 0,
+      "held_by_rule": {
+        "confidence": 10,
+        "reward_risk": 4
+      },
+      "resized_by_rule": {
+        "absolute_position_cap": 1
+      }
+    }
+  }
+}
