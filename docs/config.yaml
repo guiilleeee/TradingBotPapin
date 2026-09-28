@@ -1,4 +1,4 @@
-# TradingBot v3 -- Alpaca: Nasdaq-100 top-25 equities + 5 fixed crypto pairs
+# TradingBot v3 -- Alpaca: Nasdaq-100 top-25 equities + 4 fixed crypto pairs
 
 # Only the literal boolean `true` enables real-money trading. Anything else --
 # "true", 1, yes, a typo -- resolves to simulation. Failing safe is the point.
@@ -158,7 +158,6 @@ symbols:
   - {symbol: BTC-USD, asset_class: crypto}
   - {symbol: ETH-USD, asset_class: crypto}
   - {symbol: SOL-USD, asset_class: crypto}
-  - {symbol: XRP-USD, asset_class: crypto}
   - {symbol: DOGE-USD, asset_class: crypto}
 
 # ----------------------------------------------------------------- notifications

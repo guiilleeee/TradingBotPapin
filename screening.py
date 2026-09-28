@@ -8,7 +8,7 @@ here can widen or bypass either.
 
 Equities only. The universe is the 25 largest non-financial Nasdaq-100
 companies by market cap (equity_universe.build_equity_universe), written in
-market-cap order. The five crypto pairs are fixed in config.yaml and are never
+market-cap order. The four crypto pairs are fixed in config.yaml and are never
 rotated here -- main.load_config keeps them alongside this file's equities.
 
 The per-cycle choice of *which* of these the model actually analyses is not made

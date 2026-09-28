@@ -1,4 +1,4 @@
-"""Universe assembly: top-25 by market cap from the screen, plus the 5 fixed crypto
+"""Universe assembly: top-25 by market cap from the screen, plus the 4 fixed crypto
 pairs that symbols.yaml can never rotate out; and the shipped config itself."""
 
 import yaml
@@ -6,10 +6,10 @@ import yaml
 import equity_universe
 import main
 
-FIXED_CRYPTO = ["BTC-USD", "ETH-USD", "SOL-USD", "XRP-USD", "DOGE-USD"]
+FIXED_CRYPTO = ["BTC-USD", "ETH-USD", "SOL-USD", "DOGE-USD"]
 
 
-def test_shipped_config_is_25_equities_plus_the_5_fixed_crypto():
+def test_shipped_config_is_25_equities_plus_the_4_fixed_crypto():
     with open(main.DEFAULT_CONFIG_PATH, encoding="utf-8") as handle:
         config = yaml.safe_load(handle)
     equities = [e["symbol"] for e in config["symbols"] if e["asset_class"] == "equity"]
