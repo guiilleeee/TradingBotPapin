@@ -1,12 +1,12 @@
-"""FMP integration, Wikipedia fallback, yfinance batch pricing, and equity
+"""FMP integration, Nasdaq-list fallback, yfinance batch pricing, and equity
 scoring -- all offline.
 
 No test here touches the network. FMP calls are mocked with response shapes
 documented on FMP's own doc pages (verified via search, since every FMP
 endpoint -- including a request that would just prove a path exists -- requires
-a real key, and none is available in this environment); the Wikipedia fallback
-is exercised against a small local HTML fixture shaped like the real page's
-constituents table, not the live site. `fetch_universe_price_data`'s shape
+a real key, and none is available in this environment); the Nasdaq-list
+fallback is exercised against payloads shaped like a live
+api.nasdaq.com/api/quote/list-type/nasdaq100 response, not the live site. `fetch_universe_price_data`'s shape
 (MultiIndex `(symbol, field)` columns from `group_by="ticker"`, an all-NaN
 column for a delisted-shaped symbol, an empty-list call raising inside
 pandas) was verified live against yfinance 1.7.0 and the real S&P 500 list
@@ -57,15 +57,145 @@ class FakeResponse:
 
 
 def mock_get(monkeypatch, by_path):
-    """route requests.get(url, ...) to a canned response keyed by URL suffix."""
+    """route requests.get(url, ...) to a canned response keyed by URL suffix.
 
-    def fake_get(url, params=None, timeout=None):
+    A value is a payload (HTTP 200), a FakeResponse, or an exception to raise.
+    """
+
+    def fake_get(url, params=None, timeout=None, headers=None):
         for suffix, payload in by_path.items():
             if url.endswith(suffix):
-                return FakeResponse(payload)
+                if isinstance(payload, Exception):
+                    raise payload
+                return payload if isinstance(payload, FakeResponse) else FakeResponse(payload)
         raise AssertionError(f"unexpected URL: {url}")
 
     monkeypatch.setattr(equity_universe.requests, "get", fake_get)
+
+
+# ------------------------------------------------------- nasdaq-100 fallback
+
+
+class RestrictedResponse(FakeResponse):
+    """FMP's 402 on a plan that doesn't include the endpoint -- with the key in
+    the URL, exactly as a real requests.HTTPError would carry it."""
+
+    def __init__(self):
+        super().__init__({"Error Message": "Restricted Endpoint"}, status=402)
+
+    def raise_for_status(self):
+        raise requests.exceptions.HTTPError(
+            "402 Client Error: Payment Required for url: "
+            "https://financialmodelingprep.com/stable/nasdaq-constituent?apikey=test-key"
+        )
+
+
+FMP_RESTRICTED = {
+    "/stable/nasdaq-constituent": RestrictedResponse(),
+    "/api/v3/nasdaq_constituent": RestrictedResponse(),
+}
+
+
+def nasdaq_payload(rows):
+    """The shape api.nasdaq.com/api/quote/list-type/nasdaq100 returns (verified live)."""
+    return {"data": {"totalrecords": len(rows), "data": {"rows": rows}}}
+
+
+def nasdaq_rows(n=100):
+    # SYM0 is the largest; market caps formatted the way Nasdaq sends them.
+    return [
+        {"symbol": f"SYM{i}", "sector": "", "marketCap": f"{(n - i) * 1_000_000_000:,}"}
+        for i in range(n)
+    ]
+
+
+@pytest.fixture
+def no_yfinance(monkeypatch):
+    def explode(*a, **kw):
+        raise AssertionError("market caps were all provided; yfinance must not be hit")
+
+    monkeypatch.setattr(equity_universe.yf, "Ticker", explode)
+
+
+def test_fmp_restricted_falls_back_to_nasdaq_list(monkeypatch, capsys, no_yfinance):
+    mock_get(monkeypatch, {**FMP_RESTRICTED, "nasdaq100": nasdaq_payload(nasdaq_rows())})
+
+    top = equity_universe.fetch_nasdaq100_top(25)
+
+    assert top == [f"SYM{i}" for i in range(25)]
+    out = capsys.readouterr().out
+    # Each FMP failure is logged with its real reason, and the key never leaks.
+    assert "/stable/nasdaq-constituent failed" in out
+    assert "/api/v3/nasdaq_constituent failed" in out
+    assert "402" in out
+    assert "test-key" not in out
+
+
+def test_fmp_implausibly_large_list_falls_back_instead_of_giving_up(monkeypatch, capsys, no_yfinance):
+    huge = [{"symbol": f"X{i}", "marketCap": 1e9} for i in range(500)]
+    mock_get(monkeypatch, {
+        "/stable/nasdaq-constituent": huge,
+        "/api/v3/nasdaq_constituent": huge,
+        "nasdaq100": nasdaq_payload(nasdaq_rows()),
+    })
+
+    assert equity_universe.fetch_nasdaq100_top(25)[0] == "SYM0"
+    assert "500 rows" in capsys.readouterr().out
+
+
+def test_missing_fmp_key_still_gets_a_universe_from_nasdaq(monkeypatch, capsys, no_yfinance):
+    monkeypatch.delenv("FMP_API_KEY", raising=False)
+    mock_get(monkeypatch, {"nasdaq100": nasdaq_payload(nasdaq_rows())})
+
+    assert len(equity_universe.build_equity_pool()) == 100
+    assert "FMP_API_KEY is not set" in capsys.readouterr().out
+
+
+def test_every_source_failing_returns_empty_without_raising(monkeypatch, capsys):
+    mock_get(monkeypatch, {**FMP_RESTRICTED, "nasdaq100": ConnectionError("nasdaq.com is down")})
+
+    assert equity_universe.fetch_nasdaq100_top(25) == []
+    out = capsys.readouterr().out
+    assert "402" in out
+    assert "nasdaq.com failed: nasdaq.com is down" in out
+    assert "every source failed" in out
+
+
+def test_nasdaq_http_error_also_degrades_to_empty(monkeypatch, capsys):
+    mock_get(monkeypatch, {**FMP_RESTRICTED, "nasdaq100": FakeResponse({}, status=403)})
+    assert equity_universe.build_equity_universe() == []
+    assert "nasdaq.com failed: HTTP 403" in capsys.readouterr().out
+
+
+def test_nasdaq_parser_normalizes_dedupes_and_parses_market_cap(monkeypatch):
+    rows = nasdaq_rows(98) + [
+        {"symbol": " brk.b ", "marketCap": "1,000"},
+        {"symbol": "BRK/B", "marketCap": "2,000"},  # same issuer, other spelling
+        {"symbol": "NOCAP", "marketCap": "NA"},
+        {"symbol": "", "marketCap": "5"},
+    ]
+    mock_get(monkeypatch, {"nasdaq100": nasdaq_payload(rows)})
+
+    by_symbol = {r["symbol"]: r["mcap"] for r in equity_universe._fetch_nasdaq100_from_nasdaq_api()}
+
+    assert by_symbol["BRK-B"] == 1000.0  # first spelling wins
+    assert "BRK/B" not in by_symbol and "brk.b" not in by_symbol
+    assert by_symbol["NOCAP"] == 0.0  # left for rank_by_market_cap's yfinance fill
+    assert by_symbol["SYM0"] == 98_000_000_000.0
+    assert "" not in by_symbol
+    assert len(by_symbol) == 100
+
+
+@pytest.mark.parametrize("payload", [
+    {"data": None},                      # shape changed
+    {"data": {"data": {"rows": "x"}}},   # rows not a list
+    nasdaq_payload([]),                  # empty
+    nasdaq_payload(nasdaq_rows(40)),     # partial list -> would be a wrong top 25
+])
+def test_nasdaq_parser_raises_rather_than_return_a_wrong_universe(monkeypatch, payload):
+    mock_get(monkeypatch, {"nasdaq100": payload})
+    with pytest.raises(RuntimeError, match="nasdaq.com"):
+        equity_universe._fetch_nasdaq100_from_nasdaq_api()
 
 
 # ------------------------------------------------------------------- api key

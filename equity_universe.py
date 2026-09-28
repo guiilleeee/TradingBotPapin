@@ -1,7 +1,8 @@
 """Equity universe (Nasdaq-100 top 25 by market cap) and screening signal (yfinance).
 
 Pipeline, run weekly by screening.py:
-1. Fetch Nasdaq-100 constituents from FMP.
+1. Fetch Nasdaq-100 constituents from FMP, falling back to Nasdaq's public
+   list (no key) when FMP's endpoints are restricted on the current plan.
 2. Filter out financials (Financial Services sector).
 3. Rank by market cap and take the top 25.
 
@@ -31,6 +32,12 @@ HTTP_TIMEOUT = 30.0
 INTER_CALL_DELAY_SECONDS = 0.4
 
 NASDAQ_100_MAX_PLAUSIBLE_SIZE = 160
+NASDAQ_100_MIN_PLAUSIBLE_SIZE = 90
+
+# No-key fallback for Nasdaq-100 membership (and market cap): the index
+# provider's own list. Rejects requests without a browser-like User-Agent.
+NASDAQ_100_API_URL = "https://api.nasdaq.com/api/quote/list-type/nasdaq100"
+NASDAQ_API_HEADERS = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
 
 # The top 25 non-financial Nasdaq-100 constituents by market cap.
 TARGET_UNIVERSE_SIZE = 25
@@ -114,44 +121,112 @@ def rank_by_market_cap(
     return [r["symbol"] for r in (ranked if keep_all else ranked[:size])]
 
 
+def _fmp_nasdaq100_rows(path: str) -> List[Dict[str, Any]]:
+    """Non-financial Nasdaq-100 rows ({symbol, mcap}) from one FMP endpoint.
+
+    Raises on any failure (HTTP error, empty or implausible list) so the caller
+    can log the reason and move on to the next source.
+    """
+    data = _get(path)
+    if not isinstance(data, list) or not data:
+        raise FMPError(f"FMP {path}: empty or non-list response")
+    if len(data) > NASDAQ_100_MAX_PLAUSIBLE_SIZE:
+        raise FMPError(
+            f"FMP {path}: {len(data)} rows, more than {NASDAQ_100_MAX_PLAUSIBLE_SIZE} "
+            "-- not the Nasdaq-100"
+        )
+
+    non_financials = []
+    for row in data:
+        if not isinstance(row, dict):
+            continue
+        sym = str(row.get("symbol", "")).strip().upper()
+        if not sym:
+            continue
+        sector = str(row.get("sector", "")).lower()
+        if "financial" in sector:
+            continue
+        # FMP might return market_cap or marketCap depending on the endpoint schema.
+        # Default to 0 if missing so it falls to the bottom of the sort.
+        mcap = row.get("marketCap") or row.get("market_cap") or 0.0
+        try:
+            mcap = float(mcap)
+        except (TypeError, ValueError):
+            mcap = 0.0
+        non_financials.append({"symbol": sym, "mcap": mcap})
+    return non_financials
+
+
+def _fetch_nasdaq100_from_nasdaq_api() -> List[Dict[str, Any]]:
+    """Nasdaq-100 rows ({symbol, mcap}) from Nasdaq's own public list -- no key.
+
+    The no-key fallback for when FMP's constituent endpoints are restricted on
+    the current plan (HTTP 402). No sector here, and none needed: the index
+    methodology already excludes financial companies. Market cap comes as a
+    formatted string ("4,961,437,432,800"); anything unparseable is left at 0
+    for rank_by_market_cap to fill from yfinance.
+
+    Raises on a bad response, an unexpected shape, or a list whose size is not
+    plausibly the Nasdaq-100 -- never returns a silently wrong universe.
+    """
+    resp = requests.get(NASDAQ_100_API_URL, headers=NASDAQ_API_HEADERS, timeout=HTTP_TIMEOUT)
+    resp.raise_for_status()
+    try:
+        rows = resp.json()["data"]["data"]["rows"]
+    except (ValueError, KeyError, TypeError) as exc:
+        raise RuntimeError(f"nasdaq.com: unexpected response shape ({type(exc).__name__}: {exc})") from None
+    if not isinstance(rows, list):
+        raise RuntimeError("nasdaq.com: 'rows' is not a list")
+
+    out: List[Dict[str, Any]] = []
+    seen: Set[str] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        # BRK.B / BRK/B -> BRK-B, the form yfinance and the rest of the pipeline use.
+        sym = str(row.get("symbol", "")).strip().upper().replace(".", "-").replace("/", "-")
+        if not sym or sym in seen:
+            continue
+        seen.add(sym)
+        try:
+            mcap = float(str(row.get("marketCap", "")).replace(",", ""))
+        except ValueError:
+            mcap = 0.0
+        out.append({"symbol": sym, "mcap": mcap})
+
+    if not NASDAQ_100_MIN_PLAUSIBLE_SIZE <= len(out) <= NASDAQ_100_MAX_PLAUSIBLE_SIZE:
+        raise RuntimeError(
+            f"nasdaq.com: {len(out)} constituents, expected "
+            f"{NASDAQ_100_MIN_PLAUSIBLE_SIZE}-{NASDAQ_100_MAX_PLAUSIBLE_SIZE}"
+        )
+    return out
+
+
 def fetch_nasdaq100_top(size: int = TARGET_UNIVERSE_SIZE, keep_all: bool = False) -> List[str]:
     """Fetch Nasdaq-100, filter financials, rank by market cap, take the top `size`
-    (or, with `keep_all`, every ranked constituent -- still [] below `size`)."""
-    for path in ("/stable/nasdaq-constituent", "/api/v3/nasdaq_constituent"):
+    (or, with `keep_all`, every ranked constituent -- still [] below `size`).
+
+    Sources in order: FMP's two constituent endpoints, then Nasdaq's public list.
+    Every failed source is printed with its reason (for journalctl) before moving
+    on; never raises -- [] if all of them fail.
+    """
+    sources = [
+        (path, lambda path=path: _fmp_nasdaq100_rows(path))
+        for path in ("/stable/nasdaq-constituent", "/api/v3/nasdaq_constituent")
+    ]
+    sources.append(("nasdaq.com", _fetch_nasdaq100_from_nasdaq_api))
+
+    for name, fetch_rows in sources:
         try:
-            data = _get(path)
-            if not isinstance(data, list) or not data:
-                continue
-
-            if len(data) > NASDAQ_100_MAX_PLAUSIBLE_SIZE:
-                return []
-
-            # Filter out financial services
-            non_financials = []
-            for row in data:
-                if not isinstance(row, dict):
-                    continue
-                sym = str(row.get("symbol", "")).strip().upper()
-                if not sym:
-                    continue
-                sector = str(row.get("sector", "")).lower()
-                if "financial" in sector:
-                    continue
-                # FMP might return market_cap or marketCap depending on the endpoint schema.
-                # Default to 0 if missing so it falls to the bottom of the sort.
-                mcap = row.get("marketCap") or row.get("market_cap") or 0.0
-                try:
-                    mcap = float(mcap)
-                except (TypeError, ValueError):
-                    mcap = 0.0
-                non_financials.append({"symbol": sym, "mcap": mcap})
-
-            top = rank_by_market_cap(non_financials, size, keep_all=keep_all)
-            if top:
-                return top
-        except Exception:
+            top = rank_by_market_cap(fetch_rows(), size, keep_all=keep_all)
+        except Exception as exc:
+            print(sanitize(f"  nasdaq constituents: {name} failed: {exc}"))
             continue
+        if top:
+            return top
+        print(f"  nasdaq constituents: {name} failed: fewer than {size} constituents with a market cap")
 
+    print("  nasdaq constituents: every source failed, returning []")
     return []
 
 
