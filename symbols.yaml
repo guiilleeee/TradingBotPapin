@@ -1,0 +1,207 @@
+# Generated weekly by screening.py -- do not hand-edit, it is overwritten every run.
+# Contributes ONLY the `symbols` list to the trading cycle; every risk parameter, threshold, and provider setting stays in config.yaml.
+generated_at: '2026-09-28T19:46:08.960567+00:00'
+symbols:
+- symbol: NVDA
+  asset_class: equity
+- symbol: AAPL
+  asset_class: equity
+- symbol: GOOGL
+  asset_class: equity
+- symbol: MSFT
+  asset_class: equity
+- symbol: AMZN
+  asset_class: equity
+- symbol: SPCX
+  asset_class: equity
+- symbol: META
+  asset_class: equity
+- symbol: AVGO
+  asset_class: equity
+- symbol: TSLA
+  asset_class: equity
+- symbol: MU
+  asset_class: equity
+- symbol: AMD
+  asset_class: equity
+- symbol: WMT
+  asset_class: equity
+- symbol: ASML
+  asset_class: equity
+- symbol: INTC
+  asset_class: equity
+- symbol: PLTR
+  asset_class: equity
+- symbol: CSCO
+  asset_class: equity
+- symbol: COST
+  asset_class: equity
+- symbol: LRCX
+  asset_class: equity
+- symbol: AMAT
+  asset_class: equity
+- symbol: PANW
+  asset_class: equity
+- symbol: ARM
+  asset_class: equity
+- symbol: NFLX
+  asset_class: equity
+- symbol: CRWD
+  asset_class: equity
+- symbol: TXN
+  asset_class: equity
+- symbol: SNDK
+  asset_class: equity
+scores:
+  equity:
+    NVDA:
+      score: 0.8667
+    AAPL:
+      score: 0.7172
+    GOOGL:
+      score: 0.6141
+    MSFT:
+      score: 0.7596
+    AMZN:
+      score: 0.8061
+    SPCX:
+      score: 0.8384
+    META:
+      score: 0.9374
+    AVGO:
+      score: 0.6869
+    TSLA:
+      score: 0.9212
+    MU:
+      score: 0.8808
+    AMD:
+      score: 0.903
+    WMT:
+      score: 0.6586
+    ASML:
+      score: 0.402
+    INTC:
+      score: 0.9818
+    PLTR:
+      score: 0.7172
+    CSCO:
+      score: 0.4626
+    COST:
+      score: 0.2263
+    LRCX:
+      score: 0.4364
+    AMAT:
+      score: 0.3596
+    PANW:
+      score: 0.7354
+    ARM:
+      score: 0.8485
+    NFLX:
+      score: 0.9152
+    CRWD:
+      score: 0.7899
+    TXN:
+      score: 0.2606
+    SNDK:
+      score: 0.7737
+pool:
+- NVDA
+- AAPL
+- GOOGL
+- MSFT
+- AMZN
+- SPCX
+- META
+- AVGO
+- TSLA
+- MU
+- AMD
+- WMT
+- ASML
+- INTC
+- PLTR
+- CSCO
+- COST
+- LRCX
+- AMAT
+- PANW
+- ARM
+- NFLX
+- CRWD
+- TXN
+- SNDK
+- KLAC
+- AMGN
+- MRVL
+- LIN
+- STX
+- QCOM
+- ADI
+- GILD
+- SHOP
+- TMUS
+- PEP
+- WDC
+- ISRG
+- VRTX
+- FTNT
+- BKNG
+- MNST
+- PDD
+- SBUX
+- ADP
+- APP
+- DDOG
+- ABNB
+- MAR
+- CEG
+- CDNS
+- ADBE
+- MELI
+- CSX
+- LITE
+- CTAS
+- SNPS
+- REGN
+- DASH
+- WBD
+- CMCSA
+- MDLZ
+- ROST
+- INTU
+- ORLY
+- HON
+- MPWR
+- AEP
+- NBIS
+- TER
+- ALAB
+- MSTR
+- NXPI
+- PCAR
+- FAST
+- BKR
+- FANG
+- HONA
+- CRWV
+- CCEP
+- PYPL
+- RKLB
+- WDAY
+- XEL
+- ADSK
+- KDP
+- MCHP
+- TRI
+- EXC
+- IDXX
+- FER
+- TTWO
+- ODFL
+- PAYX
+- ROP
+- AXON
+- ALNY
+- DXCM
+- GEHC
+- CPRT
