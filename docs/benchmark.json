@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-09-30T04:45:48.715890+00:00",
+  "generated_at": "2026-09-30T09:30:29.729640+00:00",
   "benchmark_symbol": "QQQ",
   "first_live_trade_at": null,
-  "equity_curve_start": null,
+  "equity_curve_start": "2026-09-30T09:30:05.572882+00:00",
   "baseline": null,
   "points": []
 }
