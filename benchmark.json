@@ -1,8 +1,20 @@
 {
-  "generated_at": "2026-09-30T10:30:31.266229+00:00",
+  "generated_at": "2026-09-30T14:47:29.598497+00:00",
   "benchmark_symbol": "QQQ",
-  "first_live_trade_at": null,
+  "first_live_trade_at": "2026-09-30T14:47:27.954039+00:00",
   "equity_curve_start": "2026-09-30T09:30:05.572882+00:00",
-  "baseline": null,
-  "points": []
+  "baseline": {
+    "t": "2026-09-30T14:45:53.009573+00:00",
+    "equity": 292.47,
+    "benchmark_price": 743.0878295898438
+  },
+  "points": [
+    {
+      "t": "2026-09-30T14:45:53.009573+00:00",
+      "equity": 292.47,
+      "benchmark_price": 743.0878295898438,
+      "bot_pct": 0.0,
+      "benchmark_pct": 0.0
+    }
+  ]
 }
