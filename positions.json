@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-01T23:05:05.535040+00:00",
+  "generated_at": "2026-10-01T23:20:33.143683+00:00",
   "is_live": true,
   "positions": [
     {
@@ -17,44 +17,44 @@
       "return_1m_pct": 1.5962852900263336,
       "return_6m_pct": 29.301922531085722,
       "return_1y_pct": 29.786732345469357,
-      "return_3y_pct": 92.6835127633673,
-      "return_6y_pct": 201.57410835957216
+      "return_3y_pct": 92.68349561296698,
+      "return_6y_pct": 201.57412936557066
     },
     {
       "symbol": "BTC-USD",
       "asset_class": "crypto",
       "qty": 0.000639737,
       "avg_entry_price": 84076.165,
-      "current_price": 84692.5390625,
-      "unrealized_pnl_usd": 0.3943172936215666,
-      "unrealized_pnl_pct": 0.7331139122485064,
+      "current_price": 84734.4765625,
+      "unrealized_pnl_usd": 0.42114626405906663,
+      "unrealized_pnl_pct": 0.7829942796510725,
       "stop_loss_price": 79585.99,
       "take_profit_price": 92971.67,
       "opened_at": "2026-09-30T17:32:17.851113+00:00",
-      "return_1w_pct": 0.37150989026453196,
-      "return_1m_pct": 9.416760600682462,
-      "return_6m_pct": 26.61735580058111,
-      "return_1y_pct": -28.619213603051495,
-      "return_3y_pct": 207.62849145721955,
-      "return_6y_pct": 700.8012707162221
+      "return_1w_pct": 0.4212112009421842,
+      "return_1m_pct": 9.470940879706857,
+      "return_6m_pct": 26.680053358331367,
+      "return_1y_pct": -28.58386773005419,
+      "return_3y_pct": 207.78082093043287,
+      "return_6y_pct": 701.1978062748723
     },
     {
       "symbol": "SOL-USD",
       "asset_class": "crypto",
       "qty": 0.300296246,
       "avg_entry_price": 117.4,
-      "current_price": 118.19000244140625,
-      "unrealized_pnl_usd": 0.23723476748513012,
-      "unrealized_pnl_pct": 0.6729151971092362,
+      "current_price": 118.31999969482422,
+      "unrealized_pnl_usd": 0.2762724546768568,
+      "unrealized_pnl_pct": 0.7836453959320311,
       "stop_loss_price": 107.87,
       "take_profit_price": 134.36,
       "opened_at": "2026-10-01T08:15:25.810458+00:00",
-      "return_1w_pct": 1.0092250449724283,
-      "return_1m_pct": 18.205514029245773,
-      "return_6m_pct": 49.69984945363526,
-      "return_1y_pct": -46.68341622068111,
-      "return_3y_pct": 405.69706521449945,
-      "return_6y_pct": 4400.6196326871905
+      "return_1w_pct": 1.1203251511953116,
+      "return_1m_pct": 18.335528343868358,
+      "return_6m_pct": 49.86450440637296,
+      "return_1y_pct": -46.62477327872519,
+      "return_3y_pct": 406.25328171489264,
+      "return_6y_pct": 4405.56986687657
     }
   ]
 }
