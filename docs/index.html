@@ -629,6 +629,15 @@
 // jumps straight to the target value instead of running its own rAF loop.
 const REDUCE_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+// Where the published data files (signals.csv, positions.json, ...) are read
+// from. On GitHub Pages they sit next to this page. Anywhere else (the Vercel
+// copy) they're read straight from the repo, so a VPS results push updates the
+// dashboard without a new deployment -- that Vercel project ignores those
+// commits. raw.githubusercontent.com may serve a copy up to ~5 min old.
+const DATA_BASE = location.hostname.endsWith('github.io')
+  ? ''
+  : 'https://raw.githubusercontent.com/guiilleeee/TradingBotPapin/main/docs/';
+
 function escapeHtml(str) {
   return String(str == null ? '' : str).replace(/[&<>"']/g, c => (
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
@@ -1685,11 +1694,11 @@ document.getElementById('refreshSecs').textContent = Math.round(REFRESH_MS / 100
 async function loadAll() {
   const bust = '?t=' + Date.now();
   const [csvText, positionsPayload, benchmarkPayload, resetPayload, jobStatusPayload] = await Promise.all([
-    fetch('signals.csv' + bust).then(r => r.text()),
-    fetch('positions.json' + bust).then(r => r.ok ? r.json() : null).catch(() => null),
-    fetch('benchmark.json' + bust).then(r => r.ok ? r.json() : null).catch(() => null),
-    fetch('history_reset.json' + bust).then(r => r.ok ? r.json() : null).catch(() => null),
-    fetch('job_status.json' + bust).then(r => r.ok ? r.json() : null).catch(() => null),
+    fetch(DATA_BASE + 'signals.csv' + bust).then(r => r.text()),
+    fetch(DATA_BASE + 'positions.json' + bust).then(r => r.ok ? r.json() : null).catch(() => null),
+    fetch(DATA_BASE + 'benchmark.json' + bust).then(r => r.ok ? r.json() : null).catch(() => null),
+    fetch(DATA_BASE + 'history_reset.json' + bust).then(r => r.ok ? r.json() : null).catch(() => null),
+    fetch(DATA_BASE + 'job_status.json' + bust).then(r => r.ok ? r.json() : null).catch(() => null),
   ]);
   JOB_STATUS = jobStatusPayload && Array.isArray(jobStatusPayload.runs) ? jobStatusPayload : null;
   const generated = [positionsPayload, benchmarkPayload, JOB_STATUS]
@@ -1811,7 +1820,7 @@ function renderInforme(report) {
 }
 
 function loadReport() {
-  return fetch('live_report.json?t=' + Date.now())
+  return fetch(DATA_BASE + 'live_report.json?t=' + Date.now())
     .then(r => r.ok ? r.json() : null).catch(() => null).then(renderInforme);
 }
 
@@ -1864,7 +1873,7 @@ async function setupPush() {
   pushBtn.style.display = 'none';
   let config = null;
   try {
-    config = await fetch('push_config.json?t=' + Date.now()).then(r => r.ok ? r.json() : null);
+    config = await fetch(DATA_BASE + 'push_config.json?t=' + Date.now()).then(r => r.ok ? r.json() : null);
   } catch (e) { config = null; }
   if (!config || !config.vapid_public_key || !config.subscription_public_key) return;
 
@@ -1997,7 +2006,7 @@ let candlestickSeries = null;
 // still works for any symbol -- only the suggestions are scoped to this list.
 async function loadNasdaq50Watchlist() {
   try {
-    const text = await fetch('config.yaml?t=' + Date.now()).then(r => r.text());
+    const text = await fetch(DATA_BASE + 'config.yaml?t=' + Date.now()).then(r => r.text());
     const symbolsBlock = text.split(/^symbols:\s*$/m)[1];
     if (!symbolsBlock) return;
     const symbols = [...symbolsBlock.split(/^\S/m)[0].matchAll(/symbol:\s*([A-Za-z0-9.\-]+)/g)].map(m => m[1]);
