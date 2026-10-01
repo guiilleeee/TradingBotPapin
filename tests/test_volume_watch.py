@@ -200,6 +200,8 @@ class TestRunWatch:
 
         config = {
             "symbols": [{"symbol": s, "asset_class": "crypto"} for s in symbols],
+            # Never the real ledger: its open positions would flip symbols to sell-side.
+            "db_path": str(tmp_path / "none.db"),
         }
         if wake_trigger:
             config["wake_trigger"] = wake_trigger
@@ -207,6 +209,12 @@ class TestRunWatch:
         with open(path, "w") as f:
             yaml.dump(config, f)
         return path
+
+    @staticmethod
+    def _positions_path(tmp_path):
+        # run_watch defaults to the repo's live positions.json; once the bot held
+        # BTC-USD there, BTC was checked sell-side and never flagged wake_buy.
+        return str(tmp_path / "positions.json")
 
     def test_run_watch_returns_flagged_symbols(self, monkeypatch, tmp_path):
         monkeypatch.setattr(volume_watch, "_is_market_open", lambda: True)
@@ -224,7 +232,7 @@ class TestRunWatch:
 
         monkeypatch.setattr(volume_watch.data_fetcher, "fetch_ohlcv", fake_fetch)
 
-        flagged = volume_watch.run_watch(config_path, wake_state_path)
+        flagged = volume_watch.run_watch(config_path, wake_state_path, self._positions_path(tmp_path))
         assert "BTC-USD" in flagged["wake_buy"]
 
         # Verify wake_state was persisted
@@ -240,5 +248,5 @@ class TestRunWatch:
         df = _make_hourly_df([100.0] * 30, [1000.0] * 30)
         monkeypatch.setattr(volume_watch.data_fetcher, "fetch_ohlcv", lambda *a, **k: df)
 
-        flagged = volume_watch.run_watch(config_path, wake_state_path)
+        flagged = volume_watch.run_watch(config_path, wake_state_path, self._positions_path(tmp_path))
         assert flagged == {"wake_buy": [], "wake_sell": []}
