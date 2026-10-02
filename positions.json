@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-02T12:20:33.547983+00:00",
+  "generated_at": "2026-10-02T12:35:05.447551+00:00",
   "is_live": true,
   "positions": [
     {
@@ -16,45 +16,45 @@
       "return_1w_pct": -1.6670653368857202,
       "return_1m_pct": 1.5962852900263336,
       "return_6m_pct": 29.301922531085722,
-      "return_1y_pct": 29.786724564284018,
-      "return_3y_pct": 92.6835127633673,
-      "return_6y_pct": 201.57412936557066
+      "return_1y_pct": 29.786732345469357,
+      "return_3y_pct": 92.68349561296698,
+      "return_6y_pct": 201.57408735357666
     },
     {
       "symbol": "BTC-USD",
       "asset_class": "crypto",
       "qty": 0.000639737,
       "avg_entry_price": 84076.165,
-      "current_price": 86572.78125,
-      "unrealized_pnl_usd": 1.5971777899262543,
-      "unrealized_pnl_pct": 2.9694697064263087,
+      "current_price": 86800.96875,
+      "unrealized_pnl_usd": 1.7431577766137543,
+      "unrealized_pnl_pct": 3.240875401488652,
       "stop_loss_price": 79585.99,
       "take_profit_price": 92971.67,
       "opened_at": "2026-09-30T17:32:17.851113+00:00",
-      "return_1w_pct": 3.0200056338185233,
-      "return_1m_pct": 11.995145566797415,
-      "return_6m_pct": 29.346117468511522,
-      "return_1y_pct": -28.26327565751232,
-      "return_3y_pct": 215.6137406403193,
-      "return_6y_pct": 720.6472697602865
+      "return_1w_pct": 3.2915445308730362,
+      "return_1m_pct": 12.290341030198615,
+      "return_6m_pct": 29.68704641585138,
+      "return_1y_pct": -28.074192858628567,
+      "return_3y_pct": 216.44563155802464,
+      "return_6y_pct": 722.8103220056296
     },
     {
       "symbol": "SOL-USD",
       "asset_class": "crypto",
       "qty": 0.300296246,
       "avg_entry_price": 117.4,
-      "current_price": 121.98999786376953,
-      "unrealized_pnl_usd": 1.3783591276380078,
-      "unrealized_pnl_pct": 3.909708572205739,
+      "current_price": 122.27999877929688,
+      "unrealized_pnl_usd": 1.4654453139074324,
+      "unrealized_pnl_pct": 4.156728091394268,
       "stop_loss_price": 107.87,
       "take_profit_price": 134.36,
       "opened_at": "2026-10-01T08:15:25.810458+00:00",
-      "return_1w_pct": -0.016183029817107286,
-      "return_1m_pct": 21.521386949008892,
-      "return_6m_pct": 51.78823637520402,
-      "return_1y_pct": -48.05772701697941,
-      "return_3y_pct": 417.94497989414816,
-      "return_6y_pct": 4688.986615048834
+      "return_1w_pct": 0.22150365734598942,
+      "return_1m_pct": 21.810273858497318,
+      "return_6m_pct": 52.149075200402194,
+      "return_1y_pct": -47.934247166307806,
+      "return_3y_pct": 419.17626541748945,
+      "return_6y_pct": 4700.371241060249
     }
   ]
 }
