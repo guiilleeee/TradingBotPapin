@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-03T13:20:33.000007+00:00",
+  "generated_at": "2026-10-03T13:30:42.596141+00:00",
   "is_live": true,
   "positions": [
     {
@@ -16,8 +16,8 @@
       "return_1w_pct": -2.163780081605682,
       "return_1m_pct": 2.6864879418655896,
       "return_6m_pct": 30.6210883034,
-      "return_1y_pct": 30.25421263555994,
-      "return_3y_pct": 96.17357300635688,
+      "return_1y_pct": 30.254197119181114,
+      "return_3y_pct": 96.17355540857866,
       "return_6y_pct": 204.65085290909647
     },
     {
@@ -25,36 +25,36 @@
       "asset_class": "crypto",
       "qty": 0.000639737,
       "avg_entry_price": 84076.165,
-      "current_price": 84787.4609375,
-      "unrealized_pnl_usd": 0.4550423291684416,
-      "unrealized_pnl_pct": 0.8460137751287844,
+      "current_price": 84802.5,
+      "unrealized_pnl_usd": 0.4646633738950041,
+      "unrealized_pnl_pct": 0.8639012019637349,
       "stop_loss_price": 79585.99,
       "take_profit_price": 92971.67,
       "opened_at": "2026-09-30T17:32:17.851113+00:00",
-      "return_1w_pct": 0.4513965442141554,
-      "return_1m_pct": 4.325880872455001,
-      "return_6m_pct": 26.00209724949629,
-      "return_1y_pct": -30.653581098057035,
-      "return_3y_pct": 204.99750936009877,
-      "return_6y_pct": 694.6651792803597
+      "return_1w_pct": 0.469213976345495,
+      "return_1m_pct": 4.3443855360628,
+      "return_6m_pct": 26.024446702997018,
+      "return_1y_pct": -30.64128086973924,
+      "return_3y_pct": 205.05160788545726,
+      "return_6y_pct": 694.8061319538521
     },
     {
       "symbol": "SOL-USD",
       "asset_class": "crypto",
       "qty": 0.300296246,
       "avg_entry_price": 117.4,
-      "current_price": 119.37999725341797,
-      "unrealized_pnl_usd": 0.594585742291725,
-      "unrealized_pnl_pct": 1.6865393981413623,
+      "current_price": 119.44000244140625,
+      "unrealized_pnl_usd": 0.6126050749851301,
+      "unrealized_pnl_pct": 1.737651142594765,
       "stop_loss_price": 107.87,
       "take_profit_price": 134.36,
       "opened_at": "2026-10-01T08:15:25.810458+00:00",
-      "return_1w_pct": -1.6846908127685856,
-      "return_1m_pct": 14.812353768542463,
-      "return_6m_pct": 47.73219939054256,
-      "return_1y_pct": -48.76438251509477,
-      "return_3y_pct": 415.79648629275755,
-      "return_6y_pct": 4644.842340191009
+      "return_1w_pct": -1.6352735842073973,
+      "return_1m_pct": 14.87006307520824,
+      "return_6m_pct": 47.80645553562803,
+      "return_1y_pct": -48.738629433091006,
+      "return_3y_pct": 416.0557463516934,
+      "return_6y_pct": 4647.22728878498
     }
   ]
 }
