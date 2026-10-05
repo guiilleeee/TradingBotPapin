@@ -1,6 +1,6 @@
 # Generated weekly by screening.py -- do not hand-edit, it is overwritten every run.
 # Contributes ONLY the `symbols` list to the trading cycle; every risk parameter, threshold, and provider setting stays in config.yaml.
-generated_at: '2026-09-28T19:46:08.960567+00:00'
+generated_at: '2026-10-05T06:01:13.098444+00:00'
 symbols:
 - symbol: NVDA
   asset_class: equity
@@ -34,11 +34,11 @@ symbols:
   asset_class: equity
 - symbol: CSCO
   asset_class: equity
-- symbol: COST
-  asset_class: equity
 - symbol: LRCX
   asset_class: equity
 - symbol: AMAT
+  asset_class: equity
+- symbol: COST
   asset_class: equity
 - symbol: PANW
   asset_class: equity
@@ -48,62 +48,62 @@ symbols:
   asset_class: equity
 - symbol: CRWD
   asset_class: equity
-- symbol: TXN
+- symbol: KLAC
   asset_class: equity
-- symbol: SNDK
+- symbol: TXN
   asset_class: equity
 scores:
   equity:
     NVDA:
-      score: 0.8667
+      score: 0.8141
     AAPL:
-      score: 0.7172
+      score: 0.7111
     GOOGL:
-      score: 0.6141
-    MSFT:
       score: 0.7596
+    MSFT:
+      score: 0.6303
     AMZN:
-      score: 0.8061
+      score: 0.7697
     SPCX:
-      score: 0.8384
-    META:
-      score: 0.9374
-    AVGO:
-      score: 0.6869
-    TSLA:
-      score: 0.9212
-    MU:
-      score: 0.8808
-    AMD:
-      score: 0.903
-    WMT:
-      score: 0.6586
-    ASML:
-      score: 0.402
-    INTC:
       score: 0.9818
+    META:
+      score: 0.5212
+    AVGO:
+      score: 0.8586
+    TSLA:
+      score: 0.9434
+    MU:
+      score: 0.8323
+    AMD:
+      score: 0.8121
+    WMT:
+      score: 0.5091
+    ASML:
+      score: 0.3717
+    INTC:
+      score: 0.6929
     PLTR:
-      score: 0.7172
+      score: 0.6162
     CSCO:
-      score: 0.4626
-    COST:
-      score: 0.2263
+      score: 0.8141
     LRCX:
-      score: 0.4364
+      score: 0.6747
     AMAT:
-      score: 0.3596
+      score: 0.6182
+    COST:
+      score: 0.2384
     PANW:
-      score: 0.7354
+      score: 0.5515
     ARM:
-      score: 0.8485
+      score: 0.7131
     NFLX:
-      score: 0.9152
+      score: 0.7394
     CRWD:
-      score: 0.7899
+      score: 0.5495
+    KLAC:
+      score: 0.697
     TXN:
-      score: 0.2606
-    SNDK:
-      score: 0.7737
+      score: 0.6646
 pool:
 - NVDA
 - AAPL
@@ -121,79 +121,79 @@ pool:
 - INTC
 - PLTR
 - CSCO
-- COST
 - LRCX
 - AMAT
+- COST
 - PANW
 - ARM
 - NFLX
 - CRWD
+- KLAC
 - TXN
 - SNDK
-- KLAC
-- AMGN
 - MRVL
 - LIN
+- AMGN
+- ADI
+- SHOP
 - STX
 - QCOM
-- ADI
 - GILD
-- SHOP
 - TMUS
 - PEP
 - WDC
 - ISRG
-- VRTX
 - FTNT
-- BKNG
+- VRTX
 - MNST
-- PDD
+- BKNG
 - SBUX
+- PDD
 - ADP
-- APP
 - DDOG
-- ABNB
-- MAR
-- CEG
-- CDNS
-- ADBE
-- MELI
-- CSX
 - LITE
-- CTAS
+- ABNB
+- CDNS
 - SNPS
-- REGN
+- MAR
+- ADBE
+- CEG
+- APP
+- CSX
+- MELI
 - DASH
 - WBD
+- CTAS
 - CMCSA
+- REGN
+- INTU
 - MDLZ
 - ROST
-- INTU
+- MPWR
+- TER
 - ORLY
 - HON
-- MPWR
-- AEP
-- NBIS
-- TER
-- ALAB
 - MSTR
+- NBIS
+- AEP
 - NXPI
-- PCAR
+- ALAB
 - FAST
+- PCAR
 - BKR
 - FANG
-- HONA
 - CRWV
+- HONA
+- RKLB
 - CCEP
 - PYPL
-- RKLB
 - WDAY
 - XEL
 - ADSK
-- KDP
 - MCHP
 - TRI
 - EXC
+- KDP
 - IDXX
 - FER
 - TTWO
@@ -201,7 +201,7 @@ pool:
 - PAYX
 - ROP
 - AXON
-- ALNY
 - DXCM
+- ALNY
 - GEHC
 - CPRT
