@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-09-28T07:00:27.116945+00:00",
+  "generated_at": "2026-10-05T07:00:07.478639+00:00",
   "mode": "live",
-  "fills_read": 0,
-  "open_lots": 0,
+  "fills_read": 3,
+  "open_lots": 3,
   "min_meaningful_sample": 30,
   "week": {
-    "start": "2026-09-21T07:00:27.116945+00:00",
+    "start": "2026-09-28T07:00:07.478639+00:00",
     "summary": {
       "total_closed_trades": 0,
       "wins": 0,
@@ -29,14 +29,15 @@
       "confidence_vs_pnl_correlation": null
     },
     "overrides": {
-      "proposed_buys": 20,
-      "executed_buys": 0,
+      "proposed_buys": 52,
+      "executed_buys": 3,
       "held_by_rule": {
-        "confidence": 10,
-        "reward_risk": 4
+        "confidence": 41,
+        "portfolio_group": 3,
+        "reward_risk": 2
       },
       "resized_by_rule": {
-        "absolute_position_cap": 1
+        "absolute_position_cap": 3
       }
     },
     "trades": []
@@ -66,14 +67,15 @@
       "confidence_vs_pnl_correlation": null
     },
     "overrides": {
-      "proposed_buys": 20,
-      "executed_buys": 0,
+      "proposed_buys": 72,
+      "executed_buys": 3,
       "held_by_rule": {
-        "confidence": 10,
-        "reward_risk": 4
+        "confidence": 51,
+        "reward_risk": 6,
+        "portfolio_group": 3
       },
       "resized_by_rule": {
-        "absolute_position_cap": 1
+        "absolute_position_cap": 4
       }
     }
   }
