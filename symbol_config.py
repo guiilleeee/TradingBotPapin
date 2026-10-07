@@ -16,7 +16,7 @@ even against a typo in config.yaml.
 from __future__ import annotations
 
 import copy
-from typing import Any, Dict, Mapping
+from typing import Any, Dict, Mapping, Optional
 
 CRYPTO = "crypto"
 EQUITY = "equity"
@@ -104,8 +104,15 @@ def wake_config(config: Mapping[str, Any], symbol: str) -> Dict[str, Any]:
     return _deep_merge(base, patch) if patch else base
 
 
-def max_position_pct(config: Mapping[str, Any], symbol: str, global_cap: float) -> float:
-    """This symbol's absolute position cap -- never above the global one."""
+def max_position_pct(config: Mapping[str, Any], symbol: str, global_cap: Optional[float]) -> Optional[float]:
+    """This symbol's absolute position cap -- never above the global one. With no
+    global cap (None) only a per-symbol override limits it; None if neither."""
+    if global_cap is None:
+        try:
+            value = float(_overrides_for(config, symbol).get("max_absolute_position_pct"))
+        except (TypeError, ValueError):
+            return None
+        return value if value > 0 else None
     override = _overrides_for(config, symbol).get("max_absolute_position_pct")
     if override is None:
         return float(global_cap)

@@ -25,18 +25,16 @@ funding_threshold_usd: 10.0
 # count too: each cycle books them from Alpaca's order history first.
 circuit_breaker_loss_pct: 3.0
 
-# Percent of equity to risk per trade. Position size is derived from this and the
-# stop distance, then clamped by the absolute cap (per-symbol caps: see
-# symbol_overrides below).
-max_risk_pct: 3.0
-max_absolute_position_pct: 25.0
-
 # Confidence-scaled sizing for buys (risk_manager.py). A buy at min_confidence_live
-# gets min_position_size_pct of equity, rising in a straight line to
-# max_absolute_position_pct at full_size_confidence. max_risk_pct above stays a hard
-# backstop: a buy is never sized to risk more than that % of equity at its stop.
-# Remove min_position_size_pct to go back to risk-based sizing clamped to the cap.
+# gets min_position_size_pct of equity; size rises in a straight line to
+# full_size_position_pct at full_size_confidence and keeps rising on the same slope
+# above it (confidence is at most 1.0, so ~29.7% at 1.0). There is NO global ceiling
+# and NO risk-per-trade backstop: max_risk_pct and max_absolute_position_pct are
+# deliberately unset (None = no limit). Setting either one back re-enables it.
+# What still limits a buy: circuit_breaker_loss_pct, the portfolio block below, the
+# symbol_overrides cap below, and the cash actually available.
 min_position_size_pct: 10.0
+full_size_position_pct: 25.0
 full_size_confidence: 0.90
 
 # Minimum acceptable reward:risk (take-profit distance over stop-loss distance,

@@ -39,18 +39,20 @@ def confidence_scaled_size_pct(
     confidence: float,
     min_confidence: float,
     floor_pct: float,
-    cap_pct: float,
+    full_size_pct: float,
     full_size_confidence: float = DEFAULT_FULL_SIZE_CONFIDENCE,
 ) -> float:
     """Position size (% of equity) for a given confidence: a straight line from
-    `floor_pct` at `min_confidence` up to `cap_pct` at `full_size_confidence`,
-    flat outside that range. The floor never exceeds the cap (a tighter
-    per-symbol cap pulls the whole line down)."""
-    floor_pct = min(floor_pct, cap_pct)
+    `floor_pct` at `min_confidence` through `full_size_pct` at
+    `full_size_confidence`. The line is not clamped above: a confidence beyond
+    `full_size_confidence` keeps rising along the same slope (it is bounded
+    only by confidence itself being at most 1.0). Below `min_confidence` it is
+    held at the floor."""
     span = full_size_confidence - min_confidence
-    t = 1.0 if span <= 0 else (confidence - min_confidence) / span
-    t = max(0.0, min(1.0, t))
-    return floor_pct + (cap_pct - floor_pct) * t
+    if span <= 0:
+        return full_size_pct
+    t = max(0.0, (confidence - min_confidence) / span)
+    return floor_pct + (full_size_pct - floor_pct) * t
 
 
 def validate(
@@ -58,8 +60,8 @@ def validate(
     current_price: float,
     today_realized_loss_pct: float,
     circuit_breaker_loss_pct: float,
-    max_risk_pct: float,
-    max_absolute_position_pct: float,
+    max_risk_pct: Optional[float],
+    max_absolute_position_pct: Optional[float],
     min_confidence: float,
     min_reward_risk_ratio: float = DEFAULT_MIN_REWARD_RISK_RATIO,
     days_to_earnings: Optional[int] = None,
@@ -69,6 +71,7 @@ def validate(
     stop_atr_max: float = 0.0,
     min_position_size_pct: Optional[float] = None,
     full_size_confidence: float = DEFAULT_FULL_SIZE_CONFIDENCE,
+    full_size_position_pct: Optional[float] = None,
 ) -> TradeSignal:
     """Apply the risk rules in order and return the signal execution may act on.
 
@@ -101,7 +104,14 @@ def validate(
             stays a hard backstop: the size is never larger than what risks
             that % of equity at the stop. None keeps the older behaviour (the
             risk-based size, clamped to the cap).
-        full_size_confidence: confidence at which a buy reaches the cap.
+        full_size_confidence: confidence at which a buy reaches `full_size_position_pct`.
+        full_size_position_pct: the size at `full_size_confidence` -- an anchor for
+            the slope of the ramp, not a ceiling. Defaults to
+            `max_absolute_position_pct` when that is set.
+
+        `max_risk_pct` and `max_absolute_position_pct` may each be None, which
+        removes that limit. With confidence scaling on and both None, nothing
+        caps a buy's size here but the confidence itself.
     """
     reasons: List[str] = []
 
@@ -224,15 +234,27 @@ def validate(
                         action = "hold"
 
                 if action in ("buy", "sell"):
-                    computed = max_risk_pct / stop_distance_pct
-                    if action == "buy" and min_position_size_pct is not None:
-                        # The risk-based size is now the backstop; confidence
-                        # decides where inside the floor..cap range we land.
-                        computed = min(computed, confidence_scaled_size_pct(
+                    scaled = action == "buy" and min_position_size_pct is not None
+                    if scaled:
+                        anchor = full_size_position_pct
+                        if anchor is None:
+                            anchor = max_absolute_position_pct
+                        if anchor is None:
+                            raise ValueError("confidence scaling needs full_size_position_pct "
+                                             "or max_absolute_position_pct")
+                        computed = confidence_scaled_size_pct(
                             raw.confidence, min_confidence, min_position_size_pct,
-                            max_absolute_position_pct, full_size_confidence,
-                        ))
-                    if computed > max_absolute_position_pct:
+                            anchor, full_size_confidence,
+                        )
+                        if max_risk_pct is not None:
+                            computed = min(computed, max_risk_pct / stop_distance_pct)
+                    elif max_risk_pct is not None:
+                        computed = max_risk_pct / stop_distance_pct
+                    else:
+                        # Unscaled sizing has nothing to size from without a risk
+                        # budget (sells land here); keep the model's own figure.
+                        computed = size
+                    if max_absolute_position_pct is not None and computed > max_absolute_position_pct:
                         reasons.append(
                             f"risk-based size {computed:.2f}% clamped to the "
                             f"{max_absolute_position_pct:.2f}% absolute position cap"

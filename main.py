@@ -551,16 +551,20 @@ def _run_cycle_body(
 
     fallback_equity = float(config.get("fallback_equity_usd", 1000.0))
     circuit_breaker_loss_pct = float(config.get("circuit_breaker_loss_pct", 3.0))
-    max_risk_pct = float(config.get("max_risk_pct", 1.0))
-    max_absolute_position_pct = float(config.get("max_absolute_position_pct", 20.0))
+    # Absent keys mean "no limit" (None), not a default: see config.yaml.
+    max_risk_pct = _opt_float(config.get("max_risk_pct"))
+    max_absolute_position_pct = _opt_float(config.get("max_absolute_position_pct"))
     min_reward_risk_ratio = float(
         config.get("min_reward_risk_ratio", risk_manager.DEFAULT_MIN_REWARD_RISK_RATIO)
     )
 
     print(f"=== TradingBot cycle | mode={settings.label} | provider={provider_name}"
           f" | trigger={trigger_reason} ===")
-    print(f"min_confidence={settings.min_confidence:.2f}  max_risk={max_risk_pct:.2f}%  "
-          f"cap={max_absolute_position_pct:.2f}%  breaker=-{circuit_breaker_loss_pct:.2f}%  "
+    def _pct(v: Optional[float]) -> str:
+        return "none" if v is None else f"{v:.2f}%"
+
+    print(f"min_confidence={settings.min_confidence:.2f}  max_risk={_pct(max_risk_pct)}  "
+          f"cap={_pct(max_absolute_position_pct)}  breaker=-{circuit_breaker_loss_pct:.2f}%  "
           f"min_reward_risk={min_reward_risk_ratio:.2f}")
 
     # --- equity + sweep ---------------------------------------------------
@@ -922,8 +926,8 @@ def _process_symbol(
     generate_signal: Any,
     equity: float,
     circuit_breaker_loss_pct: float,
-    max_risk_pct: float,
-    max_absolute_position_pct: float,
+    max_risk_pct: Optional[float],
+    max_absolute_position_pct: Optional[float],
     min_reward_risk_ratio: float,
     breaker_tracker: CircuitBreakerTracker,
     trigger_reason: str = "scheduled",
@@ -1020,6 +1024,7 @@ def _process_symbol(
         stop_atr_min=stop_atr_min,
         stop_atr_max=stop_atr_max,
         min_position_size_pct=_opt_float(config.get("min_position_size_pct")),
+        full_size_position_pct=_opt_float(config.get("full_size_position_pct")),
         full_size_confidence=float(
             config.get("full_size_confidence", risk_manager.DEFAULT_FULL_SIZE_CONFIDENCE)
         ),

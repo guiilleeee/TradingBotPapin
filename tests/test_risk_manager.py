@@ -280,3 +280,58 @@ def test_scaling_never_changes_a_sell_or_a_rejection():
     assert validate(buy(confidence=0.50), **SCALED).action == "hold"
     sell = validate(buy(action="sell", confidence=0.60), **SCALED)
     assert sell.action == "sell"
+
+
+# ------------------------------------------------ no caps (confidence only)
+
+UNCAPPED = dict(
+    min_confidence=0.58, max_risk_pct=None, max_absolute_position_pct=None,
+    min_position_size_pct=10.0, full_size_confidence=0.90, full_size_position_pct=25.0,
+)
+
+
+@pytest.mark.parametrize("confidence, expected", [
+    (0.58, 10.0),
+    (0.74, 17.5),
+    (0.90, 25.0),
+    (1.00, 25.0 + 15.0 * 0.10 / 0.32),  # keeps rising past full_size_confidence: 29.6875
+])
+def test_without_caps_size_is_a_pure_function_of_confidence(confidence, expected):
+    result = validate(buy(confidence=confidence), **UNCAPPED)
+    assert result.action == "buy"
+    assert result.position_size_pct == pytest.approx(expected)
+    assert result.override_reason is None
+
+
+def test_without_caps_a_wide_stop_does_not_shrink_the_position():
+    # 30% stop: the old 3% risk backstop would have cut this to 10%.
+    result = validate(buy(confidence=0.90, stop_loss_price=70.0, take_profit_price=160.0), **UNCAPPED)
+    assert result.position_size_pct == pytest.approx(25.0)
+
+
+def test_without_caps_a_buy_below_the_threshold_is_still_held():
+    assert validate(buy(confidence=0.50), **UNCAPPED).action == "hold"
+
+
+def test_without_caps_a_sell_keeps_the_models_figure():
+    sell = validate(buy(action="sell", position_size_pct=12.0), **UNCAPPED)
+    assert sell.action == "sell"
+    assert sell.position_size_pct == pytest.approx(12.0)
+
+
+def test_symbol_override_is_the_only_ceiling_left_when_no_global_cap():
+    import symbol_config
+    config = {"symbol_overrides": {"DOGE-USD": {"max_absolute_position_pct": 10.0}}}
+    assert symbol_config.max_position_pct(config, "DOGE-USD", None) == 10.0
+    assert symbol_config.max_position_pct(config, "AAPL", None) is None
+    assert symbol_config.max_position_pct(config, "DOGE-USD", 8.0) == 8.0
+
+
+def test_shipped_config_has_no_global_caps_but_keeps_the_breaker():
+    import yaml
+    with open("config.yaml", encoding="utf-8") as handle:
+        config = yaml.safe_load(handle)
+    assert config.get("max_risk_pct") is None
+    assert config.get("max_absolute_position_pct") is None
+    assert config["circuit_breaker_loss_pct"] == 3.0
+    assert config["min_position_size_pct"] == 10.0 and config["full_size_position_pct"] == 25.0
