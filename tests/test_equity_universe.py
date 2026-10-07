@@ -2,11 +2,10 @@
 scoring -- all offline.
 
 No test here touches the network. FMP calls are mocked with response shapes
-documented on FMP's own doc pages (verified via search, since every FMP
-endpoint -- including a request that would just prove a path exists -- requires
-a real key, and none is available in this environment); the Nasdaq-list
-fallback is exercised against payloads shaped like a live
-api.nasdaq.com/api/quote/list-type/nasdaq100 response, not the live site. `fetch_universe_price_data`'s shape
+documented on FMP's own doc pages (every FMP endpoint requires a real key, and
+none is available in this environment); the Wikipedia fallback is exercised
+against HTML shaped like the live constituents table, not the live site.
+`fetch_universe_price_data`'s shape
 (MultiIndex `(symbol, field)` columns from `group_by="ticker"`, an all-NaN
 column for a delisted-shaped symbol, an empty-list call raising inside
 pandas) was verified live against yfinance 1.7.0 and the real S&P 500 list
@@ -73,7 +72,7 @@ def mock_get(monkeypatch, by_path):
     monkeypatch.setattr(equity_universe.requests, "get", fake_get)
 
 
-# ------------------------------------------------------- nasdaq-100 fallback
+# ---------------------------------------------------------- s&p 500 sources
 
 
 class RestrictedResponse(FakeResponse):
@@ -86,116 +85,158 @@ class RestrictedResponse(FakeResponse):
     def raise_for_status(self):
         raise requests.exceptions.HTTPError(
             "402 Client Error: Payment Required for url: "
-            "https://financialmodelingprep.com/stable/nasdaq-constituent?apikey=test-key"
+            "https://financialmodelingprep.com/stable/sp500-constituent?apikey=test-key"
         )
 
 
 FMP_RESTRICTED = {
-    "/stable/nasdaq-constituent": RestrictedResponse(),
-    "/api/v3/nasdaq_constituent": RestrictedResponse(),
+    "/stable/sp500-constituent": RestrictedResponse(),
+    "/api/v3/sp500_constituent": RestrictedResponse(),
 }
+WIKI = "List_of_S%26P_500_companies"
 
 
-def nasdaq_payload(rows):
-    """The shape api.nasdaq.com/api/quote/list-type/nasdaq100 returns (verified live)."""
-    return {"data": {"totalrecords": len(rows), "data": {"rows": rows}}}
+def wiki_html(rows):
+    """The shape of Wikipedia's List_of_S&P_500_companies constituents table."""
+    body = "".join(
+        f"<tr><td>{sym}</td><td>{sym} Inc</td><td>{sector}</td></tr>" for sym, sector in rows
+    )
+    return (
+        "<table><thead><tr><th>Symbol</th><th>Security</th><th>GICS Sector</th></tr></thead>"
+        f"<tbody>{body}</tbody></table>"
+    )
 
 
-def nasdaq_rows(n=100):
-    # SYM0 is the largest; market caps formatted the way Nasdaq sends them.
+def wiki_rows(n=500):
+    return [(f"SYM{i}", "Information Technology") for i in range(n)]
+
+
+class WikiResponse(FakeResponse):
+    def __init__(self, rows, status=200):
+        super().__init__(wiki_html(rows), status)
+
+
+@pytest.fixture
+def sym_caps(monkeypatch):
+    """yfinance market caps for SYM<i>: SYM0 is the largest company."""
+    monkeypatch.setattr(
+        equity_universe, "_yfinance_market_cap",
+        lambda symbol: float((1000 - int(symbol[3:])) * 1_000_000_000),
+    )
+
+
+def fmp_rows(n=500):
     return [
-        {"symbol": f"SYM{i}", "sector": "", "marketCap": f"{(n - i) * 1_000_000_000:,}"}
+        {"symbol": f"SYM{i}", "sector": "Technology", "marketCap": (n - i) * 1_000_000_000}
         for i in range(n)
     ]
 
 
-@pytest.fixture
-def no_yfinance(monkeypatch):
-    def explode(*a, **kw):
-        raise AssertionError("market caps were all provided; yfinance must not be hit")
+def test_fmp_list_is_filtered_and_ranked_by_its_own_market_cap(monkeypatch):
+    rows = fmp_rows()
+    rows[0]["sector"] = "Financial Services"  # the largest, but a financial
+    mock_get(monkeypatch, {"/stable/sp500-constituent": rows})
 
-    monkeypatch.setattr(equity_universe.yf, "Ticker", explode)
+    assert equity_universe.fetch_sp500_top(25) == [f"SYM{i}" for i in range(1, 26)]
 
 
-def test_fmp_restricted_falls_back_to_nasdaq_list(monkeypatch, capsys, no_yfinance):
-    mock_get(monkeypatch, {**FMP_RESTRICTED, "nasdaq100": nasdaq_payload(nasdaq_rows())})
+def test_fmp_restricted_falls_back_to_wikipedia(monkeypatch, capsys, sym_caps):
+    mock_get(monkeypatch, {**FMP_RESTRICTED, WIKI: WikiResponse(wiki_rows())})
 
-    top = equity_universe.fetch_nasdaq100_top(25)
+    top = equity_universe.fetch_sp500_top(25)
 
     assert top == [f"SYM{i}" for i in range(25)]
     out = capsys.readouterr().out
     # Each FMP failure is logged with its real reason, and the key never leaks.
-    assert "/stable/nasdaq-constituent failed" in out
-    assert "/api/v3/nasdaq_constituent failed" in out
+    assert "/stable/sp500-constituent failed" in out
+    assert "/api/v3/sp500_constituent failed" in out
     assert "402" in out
     assert "test-key" not in out
 
 
-def test_fmp_implausibly_large_list_falls_back_instead_of_giving_up(monkeypatch, capsys, no_yfinance):
-    huge = [{"symbol": f"X{i}", "marketCap": 1e9} for i in range(500)]
+def test_fmp_implausibly_small_list_falls_back_instead_of_giving_up(monkeypatch, capsys, sym_caps):
+    small = [{"symbol": f"X{i}", "marketCap": 1e9} for i in range(100)]  # the Nasdaq-100 shape
     mock_get(monkeypatch, {
-        "/stable/nasdaq-constituent": huge,
-        "/api/v3/nasdaq_constituent": huge,
-        "nasdaq100": nasdaq_payload(nasdaq_rows()),
+        "/stable/sp500-constituent": small,
+        "/api/v3/sp500_constituent": small,
+        WIKI: WikiResponse(wiki_rows()),
     })
 
-    assert equity_universe.fetch_nasdaq100_top(25)[0] == "SYM0"
-    assert "500 rows" in capsys.readouterr().out
+    assert equity_universe.fetch_sp500_top(25)[0] == "SYM0"
+    assert "100 constituents" in capsys.readouterr().out
 
 
-def test_missing_fmp_key_still_gets_a_universe_from_nasdaq(monkeypatch, capsys, no_yfinance):
+def test_missing_fmp_key_still_gets_a_universe_from_wikipedia(monkeypatch, capsys, sym_caps):
     monkeypatch.delenv("FMP_API_KEY", raising=False)
-    mock_get(monkeypatch, {"nasdaq100": nasdaq_payload(nasdaq_rows())})
+    mock_get(monkeypatch, {WIKI: WikiResponse(wiki_rows())})
 
-    assert len(equity_universe.build_equity_pool()) == 100
+    assert len(equity_universe.build_equity_pool()) == 500
     assert "FMP_API_KEY is not set" in capsys.readouterr().out
 
 
 def test_every_source_failing_returns_empty_without_raising(monkeypatch, capsys):
-    mock_get(monkeypatch, {**FMP_RESTRICTED, "nasdaq100": ConnectionError("nasdaq.com is down")})
+    mock_get(monkeypatch, {**FMP_RESTRICTED, WIKI: ConnectionError("wikipedia is down")})
 
-    assert equity_universe.fetch_nasdaq100_top(25) == []
+    assert equity_universe.fetch_sp500_top(25) == []
     out = capsys.readouterr().out
     assert "402" in out
-    assert "nasdaq.com failed: nasdaq.com is down" in out
+    assert "wikipedia failed: wikipedia is down" in out
     assert "every source failed" in out
 
 
-def test_nasdaq_http_error_also_degrades_to_empty(monkeypatch, capsys):
-    mock_get(monkeypatch, {**FMP_RESTRICTED, "nasdaq100": FakeResponse({}, status=403)})
+def test_wikipedia_http_error_also_degrades_to_empty(monkeypatch, capsys):
+    mock_get(monkeypatch, {**FMP_RESTRICTED, WIKI: FakeResponse("", status=403)})
     assert equity_universe.build_equity_universe() == []
-    assert "nasdaq.com failed: HTTP 403" in capsys.readouterr().out
+    assert "wikipedia failed: HTTP 403" in capsys.readouterr().out
 
 
-def test_nasdaq_parser_normalizes_dedupes_and_parses_market_cap(monkeypatch):
-    rows = nasdaq_rows(98) + [
-        {"symbol": " brk.b ", "marketCap": "1,000"},
-        {"symbol": "BRK/B", "marketCap": "2,000"},  # same issuer, other spelling
-        {"symbol": "NOCAP", "marketCap": "NA"},
-        {"symbol": "", "marketCap": "5"},
+def test_wikipedia_parser_normalizes_dedupes_and_drops_financials(monkeypatch):
+    rows = wiki_rows(496) + [
+        (" brk.b ", "Financials"),
+        ("BRK/B", "Financials"),  # same issuer, other spelling
+        ("BF.B", "Consumer Staples"),
+        ("", "Utilities"),
     ]
-    mock_get(monkeypatch, {"nasdaq100": nasdaq_payload(rows)})
+    mock_get(monkeypatch, {WIKI: WikiResponse(rows)})
 
-    by_symbol = {r["symbol"]: r["mcap"] for r in equity_universe._fetch_nasdaq100_from_nasdaq_api()}
+    symbols = [r["symbol"] for r in equity_universe._fetch_sp500_from_wikipedia()]
 
-    assert by_symbol["BRK-B"] == 1000.0  # first spelling wins
-    assert "BRK/B" not in by_symbol and "brk.b" not in by_symbol
-    assert by_symbol["NOCAP"] == 0.0  # left for rank_by_market_cap's yfinance fill
-    assert by_symbol["SYM0"] == 98_000_000_000.0
-    assert "" not in by_symbol
-    assert len(by_symbol) == 100
+    assert "BF-B" in symbols  # dot -> dash, the form yfinance uses
+    assert "BRK-B" not in symbols  # a financial
+    assert len(symbols) == 497
+    assert len(set(symbols)) == len(symbols)
 
 
 @pytest.mark.parametrize("payload", [
-    {"data": None},                      # shape changed
-    {"data": {"data": {"rows": "x"}}},   # rows not a list
-    nasdaq_payload([]),                  # empty
-    nasdaq_payload(nasdaq_rows(40)),     # partial list -> would be a wrong top 25
+    FakeResponse("<p>no table here</p>"),  # shape changed
+    WikiResponse([]),                       # empty
+    WikiResponse(wiki_rows(40)),            # partial list -> would be a wrong top 25
 ])
-def test_nasdaq_parser_raises_rather_than_return_a_wrong_universe(monkeypatch, payload):
-    mock_get(monkeypatch, {"nasdaq100": payload})
-    with pytest.raises(RuntimeError, match="nasdaq.com"):
-        equity_universe._fetch_nasdaq100_from_nasdaq_api()
+def test_wikipedia_parser_raises_rather_than_return_a_wrong_universe(monkeypatch, payload):
+    mock_get(monkeypatch, {WIKI: payload})
+    with pytest.raises(RuntimeError, match="wikipedia"):
+        equity_universe._fetch_sp500_from_wikipedia()
+
+
+def test_secondary_share_classes_take_no_second_slot():
+    rows = [
+        {"symbol": "GOOGL", "mcap": 3e12},
+        {"symbol": "GOOG", "mcap": 3e12},
+        {"symbol": "AAPL", "mcap": 2e12},
+    ]
+    assert equity_universe.rank_by_market_cap(rows, 2) == ["GOOGL", "AAPL"]
+
+
+def test_market_caps_are_looked_up_only_for_rows_that_lack_one():
+    rows = [{"symbol": "A", "mcap": 0.0}, {"symbol": "B", "mcap": 5.0}, {"symbol": "C", "mcap": 0.0}]
+    looked_up = []
+
+    def lookup(symbol):
+        looked_up.append(symbol)
+        return {"A": 10.0, "C": 1.0}[symbol]
+
+    assert equity_universe.rank_by_market_cap(rows, 3, market_cap_lookup=lookup) == ["A", "B", "C"]
+    assert sorted(looked_up) == ["A", "C"]
 
 
 # ------------------------------------------------------------------- api key

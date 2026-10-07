@@ -1,4 +1,4 @@
-"""Weekly symbol screening: the top-25 Nasdaq-100 equities by market cap.
+"""Weekly symbol screening: the top-25 S&P 500 equities by market cap.
 
 This job never trades and never touches the model. It only decides what the
 trading cycle gets to *analyse* -- the AI's own judgment (system prompt rules 4/5:
@@ -6,7 +6,7 @@ no volume confirmation, conflicting signals -> hold) and risk_manager.py remain
 the only things that can turn a candidate into an actual order. Nothing written
 here can widen or bypass either.
 
-Equities only. The universe is the 25 largest non-financial Nasdaq-100
+Equities only. The universe is the 25 largest non-financial S&P 500
 companies by market cap (equity_universe.build_equity_universe), written in
 market-cap order. The four crypto pairs are fixed in config.yaml and are never
 rotated here -- main.load_config keeps them alongside this file's equities.
@@ -15,7 +15,7 @@ The per-cycle choice of *which* of these the model actually analyses is not made
 here; funnel.py ranks the whole universe locally at every cycle. The weekly
 volume/momentum scores below are informational (logged into symbols.yaml).
 
-The rest of the non-financial Nasdaq-100 (the `pool` key in symbols.yaml) is not
+The rest of the non-financial S&P 500 (the `pool` key in symbols.yaml) is not
 analysed by default. funnel.prefilter scans it at each scheduled cycle and
 promotes a symbol only when it breaks out on both volume and price.
 
@@ -91,9 +91,9 @@ def run_screening(
         return 1
 
     try:
-        print(f"=== Weekly symbol screening (Nasdaq-100 top {EQUITY_COUNT}) ===")
+        print(f"=== Weekly symbol screening (S&P 500 top {EQUITY_COUNT}) ===")
 
-        print("Building equity universe (Nasdaq-100, by market cap)...")
+        print("Building equity universe (S&P 500, by market cap)...")
         equity_pool = list(equity_universe.build_equity_pool())
         print(f"  pool: {len(equity_pool)} non-financial constituents")
         if len(equity_pool) < EQUITY_COUNT:

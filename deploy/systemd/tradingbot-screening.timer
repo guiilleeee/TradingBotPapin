@@ -1,4 +1,4 @@
-# Weekly top-25 Nasdaq-100 screen (weekly_screening.yml), Monday 06:00 UTC.
+# Weekly top-25 S&P 500 screen (weekly_screening.yml), Monday 06:00 UTC.
 [Unit]
 Description=TradingBot weekly symbol screening
 

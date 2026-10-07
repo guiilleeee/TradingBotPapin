@@ -28,7 +28,7 @@ score = 0.6 * percentile(volume_ratio) + 0.4 * percentile(move_z) -- the same
 weights and percentile ranking as equity_universe.score_equities.
 
 Pre-filter (`prefilter` below): the weekly screen keeps only the top 25 of the
-non-financial Nasdaq-100, so the rest of that pool would otherwise go unseen all
+non-financial S&P 500, so the rest of that pool would otherwise go unseen all
 week. On the same batched download, each scheduled cycle also checks the rest of
 the pool against *absolute* thresholds. Percentiles would always pick someone;
 absolute thresholds pick no one on a quiet day. A pool symbol gets added for

@@ -372,6 +372,8 @@
   .cal-cell.neg { background: rgba(255,92,114,.10); border-color: rgba(255,92,114,.28); cursor: pointer; }
   .cal-cell.flat { background: rgba(124,135,152,.10); border-color: var(--border); cursor: pointer; }
   .cal-cell.pos:hover, .cal-cell.neg:hover, .cal-cell.flat:hover { transform: translateY(-1px); box-shadow: var(--elevation-2); }
+  .cal-cell.entry-day { background: rgba(124,135,152,.06); }
+  .cal-entries { font-size: 9.5px; color: var(--muted); margin-top: auto; line-height: 1.3; }
   .cal-cell.today { box-shadow: inset 0 0 0 1.5px var(--accent); }
   .cal-daynum { font-size: 11px; color: var(--muted); font-weight: 600; }
   .cal-amt { font-size: 11px; font-weight: 700; margin-top: auto; line-height: 1.3; }
@@ -534,6 +536,7 @@
       </div>
     </div>
     <div class="cal-grid" id="calendarGrid"></div>
+    <div class="report-note" id="calendarNote"></div>
   </div>
 </section>
 
@@ -560,7 +563,7 @@
 <section id="tab-cercador" class="tab">
   <div class="panel" style="display: flex; flex-direction: column; gap: var(--space-4);">
     <div style="font-size: 11.5px; color: var(--muted);">
-      Cerca sobre l'univers actual del bot (25 accions del Nasdaq-100 + 5 cripto, la llista de
+      Cerca sobre l'univers actual del bot (25 accions de l'S&P 500 + 5 cripto, la llista de
       <code class="mono">symbols</code> a config.yaml) &mdash; suggerit al escriure. Qualsevol simbol nord-america tambe mostra grafic,
       pero nomes els de l'univers son analitzats pel cicle programat.
     </div>
@@ -1538,7 +1541,11 @@ function dailyAggregates(data) {
   for (const r of sorted) {
     const day = (r.timestamp || '').slice(0, 10);
     if (!day) continue;
-    if (!days[day]) days[day] = { pnl: 0, trades: [], equityOpen: lastKnownEquity };
+    if (!days[day]) days[day] = { pnl: 0, trades: [], entries: 0, equityOpen: lastKnownEquity };
+
+    // A filled buy opens a position; its P&L only exists once it closes, so
+    // it is counted separately instead of leaving the day blank.
+    if ((r.action || '').toLowerCase() === 'buy' && (r.execution_status || '').toLowerCase() === 'success') days[day].entries++;
 
     const pnl = parseFloat(r.realized_pnl_usd);
     if (isFinite(pnl) && pnl !== 0) {
@@ -1592,20 +1599,27 @@ function renderCalendar() {
     const dateStr = `${year}-${pad2(month + 1)}-${pad2(day)}`;
     const agg = DAILY_AGG[dateStr];
     const hasActivity = !!(agg && agg.trades.length);
-    const cls = hasActivity ? (agg.pnl > 0 ? 'pos' : agg.pnl < 0 ? 'neg' : 'flat') : 'empty-day';
+    const cls = hasActivity ? (agg.pnl > 0 ? 'pos' : agg.pnl < 0 ? 'neg' : 'flat') : (entries ? 'empty-day entry-day' : 'empty-day');
     const todayCls = dateStr === todayStr ? ' today' : '';
+    const entries = agg ? agg.entries : 0;
 
     let inner = `<div class="cal-daynum">${day}</div>`;
     if (hasActivity) {
       const pct = dayPct(agg);
       inner += `<div class="cal-amt mono">${fmtMoneySigned(agg.pnl)}</div>`;
       inner += `<div class="cal-pct mono">${fmtCalPct(pct)}</div>`;
+    } else if (entries) {
+      inner += `<div class="cal-entries">${entries} entrada${entries === 1 ? '' : 's'}</div>`;
     }
 
     html += `<div class="cal-cell ${cls}${todayCls}" ${hasActivity ? `data-date="${dateStr}"` : ''}>${inner}</div>`;
   }
 
   grid.innerHTML = html;
+  const closedCount = Object.values(DAILY_AGG).reduce((n, a) => n + a.trades.length, 0);
+  document.getElementById('calendarNote').textContent = closedCount
+    ? ''
+    : 'Encara no hi ha cap operacio tancada: el calendari nomes mostra P&L realitzat, que apareix quan es tanca una posicio. Els dies amb compres executades es marquen com a entrades.';
   grid.querySelectorAll('.cal-cell[data-date]').forEach(cell => {
     cell.addEventListener('click', () => openDayDetail(cell.dataset.date));
   });
@@ -1755,8 +1769,8 @@ const REPORT_RULE_LABELS = {
   portfolio_unknown: 'Posicions desconegudes', absolute_position_cap: 'Limit per posicio', other: 'Altres',
 };
 
-function reportTable(headers, rows) {
-  if (!rows.length) return '<div class="empty-note">Sense dades.</div>';
+function reportTable(headers, rows, emptyMsg) {
+  if (!rows.length) return `<div class="empty-note">${emptyMsg || 'Sense dades.'}</div>`;
   return `<table class="report-table"><thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead>` +
     `<tbody>${rows.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
 }
@@ -1776,7 +1790,17 @@ function reportStats(summary) {
 }
 
 function renderInforme(report) {
-  if (!report || report.mode !== 'live' || !report.week) return;
+  if (!report) {
+    document.getElementById('reportSummary').innerHTML =
+      '<div class="empty-note">No s&#39;ha pogut carregar live_report.json.</div>';
+    return;
+  }
+  if (report.mode !== 'live' || !report.week) {
+    document.getElementById('reportSummary').innerHTML =
+      '<div class="empty-note">L&#39;informe nomes es genera en mode real (live_execution).</div>';
+    return;
+  }
+  const noClosed = `Cap operacio tancada encara (${report.open_lots} posicions obertes): aquesta taula s&#39;omple quan es tanqui la primera.`;
   const generated = parseTs(report.generated_at);
   document.getElementById('reportFreshness').textContent =
     generated ? 'generat ' + new Date(generated).toLocaleString('ca-ES') : '';
@@ -1794,20 +1818,20 @@ function renderInforme(report) {
   document.getElementById('reportExits').innerHTML = reportTable(
     ['Sortida', 'N', 'Win rate', 'P&amp;L mitja', 'Dies'],
     week.by_close_reason.map(r => [escapeHtml(REPORT_EXIT_LABELS[r.close_reason] || r.close_reason), r.count,
-      reportNum(r.win_rate_pct, 0) + '%', fmtMoneySigned(r.avg_pnl_usd), reportNum(r.avg_holding_days, 1)]));
+      reportNum(r.win_rate_pct, 0) + '%', fmtMoneySigned(r.avg_pnl_usd), reportNum(r.avg_holding_days, 1)]), noClosed);
   document.getElementById('reportTriggers').innerHTML = reportTable(
     ['Disparador', 'N', 'Win rate', 'P&amp;L'],
-    week.by_trigger.map(r => [escapeHtml(r.name), r.count, reportNum(r.win_rate_pct, 0) + '%', fmtMoneySigned(r.total_pnl_usd)]));
+    week.by_trigger.map(r => [escapeHtml(r.name), r.count, reportNum(r.win_rate_pct, 0) + '%', fmtMoneySigned(r.total_pnl_usd)]), noClosed);
   const ov = week.overrides;
   document.getElementById('reportOverrides').innerHTML =
     `<div class="report-note" style="margin-top:0">Propostes de compra: <b class="mono">${ov.proposed_buys}</b>, executades: <b class="mono">${ov.executed_buys}</b></div>` +
-    reportTable(['Regla', 'Frenades'], Object.entries(ov.held_by_rule).map(([k, v]) => [escapeHtml(REPORT_RULE_LABELS[k] || k), v])) +
+    reportTable(['Regla', 'Frenades'], Object.entries(ov.held_by_rule).map(([k, v]) => [escapeHtml(REPORT_RULE_LABELS[k] || k), v]), 'Cap compra frenada per les regles aquesta setmana.') +
     (Object.keys(ov.resized_by_rule).length ? reportTable(['Mida reduida per', 'N'],
       Object.entries(ov.resized_by_rule).map(([k, v]) => [escapeHtml(REPORT_RULE_LABELS[k] || k), v])) : '');
   const cal = report.all_time.confidence_vs_outcome;
   document.getElementById('reportCalibration').innerHTML = reportTable(
     ['Confianca', 'N', 'Win rate', 'P&amp;L mitja'],
-    cal.buckets.map(b => [b.confidence_bucket, b.count, reportNum(b.win_rate_pct, 0) + '%', fmtMoneySigned(b.avg_pnl_usd)])) +
+    cal.buckets.map(b => [b.confidence_bucket, b.count, reportNum(b.win_rate_pct, 0) + '%', fmtMoneySigned(b.avg_pnl_usd)]), noClosed) +
     `<div class="report-note">Correlacio confianca vs P&amp;L: <b class="mono">${reportNum(cal.confidence_vs_pnl_correlation)}</b>. ` +
     'Si la confianca estigues ben calibrada, les franges altes guanyarien mes sovint.</div>';
   document.getElementById('reportTrades').innerHTML = reportTable(
@@ -1816,7 +1840,8 @@ function renderInforme(report) {
       reportNum(t.entry_price), reportNum(t.exit_price),
       `<span class="${t.realized_pnl_usd > 0 ? 'pos' : t.realized_pnl_usd < 0 ? 'neg' : ''}">${fmtMoneySigned(t.realized_pnl_usd)}</span>`,
       reportNum(t.r_multiple), reportNum(t.entry_confidence), escapeHtml(t.trigger_reason),
-      escapeHtml(REPORT_EXIT_LABELS[t.close_reason] || t.close_reason)]));
+      escapeHtml(REPORT_EXIT_LABELS[t.close_reason] || t.close_reason)]),
+    'Cap operacio tancada els darrers 7 dies.');
 }
 
 function loadReport() {
@@ -1998,7 +2023,7 @@ let chart = null;
 let candlestickSeries = null;
 
 // Populates the search box's autocomplete from the bot's actual current
-// universe (config.yaml's `symbols:` list: top-25 Nasdaq-100 equities plus the
+// universe (config.yaml's `symbols:` list: top-25 S&P 500 equities plus the
 // fixed crypto pairs, published as docs/config.yaml by every cycle).
 // This is the static fallback list; weekly_screening.yml can widen it via
 // symbols.yaml, but that file isn't published to docs/, so this is the best

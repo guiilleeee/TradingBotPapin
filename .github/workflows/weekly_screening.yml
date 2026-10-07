@@ -5,7 +5,7 @@ on:
   # GitHub Actions and the VPS must never both be scheduled -- two bots would trade
   # the same Alpaca account. workflow_dispatch stays for manual runs. To move back
   # to Actions, stop the VPS timers first, then uncomment the block below.
-  # # Recomputes the top-25 Nasdaq-100 equities by market cap into symbols.yaml.
+  # # Recomputes the top-25 S&P 500 equities by market cap into symbols.yaml.
   # # The four crypto pairs are fixed in config.yaml and never touched here.
   # schedule:
     # - cron: '0 6 * * 1'  # Monday 06:00 UTC, before the week's first session

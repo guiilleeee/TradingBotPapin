@@ -1,4 +1,4 @@
-# TradingBot v3 -- Alpaca: Nasdaq-100 top-25 equities + 4 fixed crypto pairs
+# TradingBot v3 -- Alpaca: S&P 500 top-25 equities + 4 fixed crypto pairs
 
 # Only the literal boolean `true` enables real-money trading. Anything else --
 # "true", 1, yes, a typo -- resolves to simulation. Failing safe is the point.
@@ -28,8 +28,8 @@ circuit_breaker_loss_pct: 3.0
 # Percent of equity to risk per trade. Position size is derived from this and the
 # stop distance, then clamped by the absolute cap (per-symbol caps: see
 # symbol_overrides below).
-max_risk_pct: 1.0
-max_absolute_position_pct: 20.0
+max_risk_pct: 3.0
+max_absolute_position_pct: 50.0
 
 # Minimum acceptable reward:risk (take-profit distance over stop-loss distance,
 # both measured from current_price) -- a structural requirement, applied
@@ -59,7 +59,7 @@ earnings_blackout_days: 2
 
 # Confidence thresholds. These are read by separate code paths -- the live path
 # cannot reach the simulation value (see mode.py).
-min_confidence_live: 0.60
+min_confidence_live: 0.58
 min_confidence_simulation: 0.40
 
 # ---------------------------------------------------------------------- portfolio
@@ -83,7 +83,7 @@ portfolio:
       asset_class: crypto
       max_positions: 2
     semiconductors:
-      symbols: [NVDA, AMD, AVGO, MU, QCOM, ASML, AMAT, LRCX, KLAC, MRVL, ADI, TXN, INTC, NXPI, MCHP, ON, ARM, GFS]
+      symbols: [NVDA, AMD, AVGO, MU, QCOM, ASML, AMAT, LRCX, KLAC, MRVL, ADI, TXN, INTC, NXPI, MCHP, ON, ARM, GFS, MPWR, TER, SWKS]
       max_positions: 2
     megacap_platforms:
       symbols: [AAPL, MSFT, AMZN, GOOGL, GOOG, META]
@@ -110,7 +110,7 @@ approval_mode: false
 funnel:
   enabled: true
   top_n: 6
-  # Pre-filter: the weekly screen keeps 25 of the ~95 non-financial Nasdaq-100
+  # Pre-filter: the weekly screen keeps 25 of the ~425 non-financial S&P 500
   # names (symbols.yaml `pool`). At each scheduled cycle while NYSE is open, the
   # rest of the pool is checked in the same batched download, again with no model
   # call. A symbol is added for analysis (logged with trigger "prefilter") only if
@@ -124,37 +124,37 @@ funnel:
     max_extra: 2
 
 # ----------------------------------------------------------------------- universe
-# Equities: the 25 largest non-financial Nasdaq-100 companies by market cap. This
+# Equities: the 25 largest non-financial S&P 500 companies by market cap. This
 # list is the static fallback; weekly_screening.yml recomputes it every Monday
 # into symbols.yaml, which replaces only the equity entries below.
 # Crypto: fixed, never rotated by the screen (asset_class: crypto is what keeps
 # them in place when symbols.yaml exists).
 symbols:
-  - {symbol: AAPL, asset_class: equity}
-  - {symbol: MSFT, asset_class: equity}
   - {symbol: NVDA, asset_class: equity}
-  - {symbol: AMZN, asset_class: equity}
+  - {symbol: AAPL, asset_class: equity}
   - {symbol: GOOGL, asset_class: equity}
+  - {symbol: MSFT, asset_class: equity}
+  - {symbol: AMZN, asset_class: equity}
   - {symbol: META, asset_class: equity}
   - {symbol: AVGO, asset_class: equity}
   - {symbol: TSLA, asset_class: equity}
-  - {symbol: NFLX, asset_class: equity}
-  - {symbol: COST, asset_class: equity}
-  - {symbol: PLTR, asset_class: equity}
-  - {symbol: ASML, asset_class: equity}
-  - {symbol: AMD, asset_class: equity}
-  - {symbol: CSCO, asset_class: equity}
-  - {symbol: TMUS, asset_class: equity}
-  - {symbol: AZN, asset_class: equity}
   - {symbol: MU, asset_class: equity}
-  - {symbol: LIN, asset_class: equity}
-  - {symbol: PEP, asset_class: equity}
-  - {symbol: SHOP, asset_class: equity}
-  - {symbol: ISRG, asset_class: equity}
-  - {symbol: APP, asset_class: equity}
-  - {symbol: INTU, asset_class: equity}
-  - {symbol: QCOM, asset_class: equity}
-  - {symbol: AMGN, asset_class: equity}
+  - {symbol: LLY, asset_class: equity}
+  - {symbol: AMD, asset_class: equity}
+  - {symbol: WMT, asset_class: equity}
+  - {symbol: XOM, asset_class: equity}
+  - {symbol: JNJ, asset_class: equity}
+  - {symbol: INTC, asset_class: equity}
+  - {symbol: ABBV, asset_class: equity}
+  - {symbol: CSCO, asset_class: equity}
+  - {symbol: PLTR, asset_class: equity}
+  - {symbol: ORCL, asset_class: equity}
+  - {symbol: COST, asset_class: equity}
+  - {symbol: AMAT, asset_class: equity}
+  - {symbol: LRCX, asset_class: equity}
+  - {symbol: CVX, asset_class: equity}
+  - {symbol: CAT, asset_class: equity}
+  - {symbol: KO, asset_class: equity}
   - {symbol: BTC-USD, asset_class: crypto}
   - {symbol: ETH-USD, asset_class: crypto}
   - {symbol: SOL-USD, asset_class: crypto}

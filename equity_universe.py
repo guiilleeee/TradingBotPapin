@@ -1,24 +1,26 @@
-"""Equity universe (Nasdaq-100 top 25 by market cap) and screening signal (yfinance).
+"""Equity universe (S&P 500 top 25 by market cap) and screening signal (yfinance).
 
 Pipeline, run weekly by screening.py:
-1. Fetch Nasdaq-100 constituents from FMP, falling back to Nasdaq's public
-   list (no key) when FMP's endpoints are restricted on the current plan.
-2. Filter out financials (Financial Services sector).
-3. Rank by market cap and take the top 25.
+1. Fetch S&P 500 constituents from FMP, falling back to Wikipedia's public
+   constituent table (no key) when FMP's endpoints are restricted on the
+   current plan.
+2. Filter out financials (Financials / Financial Services sector).
+3. Rank by market cap and take the top 25. The whole non-financial list is the
+   "pool" funnel.prefilter scans each cycle for breakouts outside those 25.
 
-Market cap: FMP's constituent endpoints are not documented to carry it, and a
-missing value used to default to 0 for every row -- which made the "sort by
-market cap" a no-op and the resulting universe simply the first N rows in
-whatever order FMP returned them. Any constituent without a positive FMP market
-cap now gets one from yfinance, and if too few constituents end up with a real
-market cap the whole fetch returns [] so screening.py leaves last week's
-symbols.yaml untouched rather than publishing an arbitrary list.
+Market cap: neither source carries it, so every constituent without a positive
+market cap gets one from yfinance (in parallel -- ~500 lookups), and if too few
+constituents end up with a real market cap the whole fetch returns [] so
+screening.py leaves last week's symbols.yaml untouched rather than publishing an
+arbitrary list.
 """
 
 from __future__ import annotations
 
+import io
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Sequence, Set
 
 import pandas as pd
@@ -30,20 +32,21 @@ from secrets_redaction import sanitize
 FMP_BASE_URL = "https://financialmodelingprep.com"
 HTTP_TIMEOUT = 30.0
 INTER_CALL_DELAY_SECONDS = 0.4
+MARKET_CAP_LOOKUP_WORKERS = 8
 
-NASDAQ_100_MAX_PLAUSIBLE_SIZE = 160
-NASDAQ_100_MIN_PLAUSIBLE_SIZE = 90
+SP500_MAX_PLAUSIBLE_SIZE = 560
+SP500_MIN_PLAUSIBLE_SIZE = 450
 
-# No-key fallback for Nasdaq-100 membership (and market cap): the index
-# provider's own list. Rejects requests without a browser-like User-Agent.
-NASDAQ_100_API_URL = "https://api.nasdaq.com/api/quote/list-type/nasdaq100"
-NASDAQ_API_HEADERS = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
+# No-key fallback for S&P 500 membership and GICS sector. Wikipedia rejects
+# requests without a User-Agent.
+SP500_WIKIPEDIA_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+WIKIPEDIA_HEADERS = {"User-Agent": "Mozilla/5.0 (TradingBotPapin weekly screen)"}
 
-# The top 25 non-financial Nasdaq-100 constituents by market cap.
+# The top 25 non-financial S&P 500 constituents by market cap.
 TARGET_UNIVERSE_SIZE = 25
 
 # Secondary share class -> primary. Dropped when the primary is also a constituent.
-SECONDARY_SHARE_CLASSES = {"GOOG": "GOOGL", "FOX": "FOXA"}
+SECONDARY_SHARE_CLASSES = {"GOOG": "GOOGL", "FOX": "FOXA", "NWS": "NWSA"}
 
 # Minimum volume floor for equities (defense in depth).
 MIN_EQUITY_VOLUME = 100_000.0
@@ -85,9 +88,9 @@ def _get(path: str, params: dict | None = None) -> Any:
 def _yfinance_market_cap(symbol: str) -> float:
     """Market cap from yfinance, 0.0 on any failure."""
     try:
-        info = yf.Ticker(symbol).fast_info
-        value = info.get("market_cap") if hasattr(info, "get") else getattr(info, "market_cap", None)
-        return float(value or 0.0)
+        # Item access, not .get(): FastInfo.get("market_cap") returns None on
+        # yfinance 1.7 even though info["market_cap"] is populated.
+        return float(yf.Ticker(symbol).fast_info["market_cap"] or 0.0)
     except Exception:
         return 0.0
 
@@ -95,7 +98,7 @@ def _yfinance_market_cap(symbol: str) -> float:
 def rank_by_market_cap(
     rows: List[Dict[str, Any]],
     size: int,
-    market_cap_lookup=_yfinance_market_cap,
+    market_cap_lookup=None,
     keep_all: bool = False,
 ) -> List[str]:
     """Top `size` symbols by market cap, filling gaps from `market_cap_lookup`.
@@ -112,17 +115,36 @@ def rank_by_market_cap(
         if not (r["symbol"] in SECONDARY_SHARE_CLASSES
                 and SECONDARY_SHARE_CLASSES[r["symbol"]] in present)
     ]
-    for row in rows:
-        if not row["mcap"] or row["mcap"] <= 0:
-            row["mcap"] = market_cap_lookup(row["symbol"])
+    missing = [row for row in rows if not row["mcap"] or row["mcap"] <= 0]
+    if missing:
+        market_cap_lookup = market_cap_lookup or _yfinance_market_cap
+        with ThreadPoolExecutor(max_workers=MARKET_CAP_LOOKUP_WORKERS) as executor:
+            caps = executor.map(lambda r: market_cap_lookup(r["symbol"]), missing)
+            for row, mcap in zip(missing, caps):
+                row["mcap"] = mcap
     ranked = sorted((r for r in rows if r["mcap"] > 0), key=lambda r: r["mcap"], reverse=True)
     if len(ranked) < size:
         return []
     return [r["symbol"] for r in (ranked if keep_all else ranked[:size])]
 
 
-def _fmp_nasdaq100_rows(path: str) -> List[Dict[str, Any]]:
-    """Non-financial Nasdaq-100 rows ({symbol, mcap}) from one FMP endpoint.
+def _normalize_symbol(raw: Any) -> str:
+    # BRK.B / BRK/B -> BRK-B, the form yfinance and the rest of the pipeline use.
+    if raw is None or pd.isna(raw):  # an empty table cell reads as NaN
+        return ""
+    return str(raw).strip().upper().replace(".", "-").replace("/", "-")
+
+
+def _check_plausible_size(source: str, count: int) -> None:
+    if not SP500_MIN_PLAUSIBLE_SIZE <= count <= SP500_MAX_PLAUSIBLE_SIZE:
+        raise RuntimeError(
+            f"{source}: {count} constituents, expected "
+            f"{SP500_MIN_PLAUSIBLE_SIZE}-{SP500_MAX_PLAUSIBLE_SIZE} -- not the S&P 500"
+        )
+
+
+def _fmp_sp500_rows(path: str) -> List[Dict[str, Any]]:
+    """Non-financial S&P 500 rows ({symbol, mcap}) from one FMP endpoint.
 
     Raises on any failure (HTTP error, empty or implausible list) so the caller
     can log the reason and move on to the next source.
@@ -130,24 +152,20 @@ def _fmp_nasdaq100_rows(path: str) -> List[Dict[str, Any]]:
     data = _get(path)
     if not isinstance(data, list) or not data:
         raise FMPError(f"FMP {path}: empty or non-list response")
-    if len(data) > NASDAQ_100_MAX_PLAUSIBLE_SIZE:
-        raise FMPError(
-            f"FMP {path}: {len(data)} rows, more than {NASDAQ_100_MAX_PLAUSIBLE_SIZE} "
-            "-- not the Nasdaq-100"
-        )
+    _check_plausible_size(f"FMP {path}", len(data))
 
     non_financials = []
     for row in data:
         if not isinstance(row, dict):
             continue
-        sym = str(row.get("symbol", "")).strip().upper()
+        sym = _normalize_symbol(row.get("symbol"))
         if not sym:
             continue
         sector = str(row.get("sector", "")).lower()
         if "financial" in sector:
             continue
         # FMP might return market_cap or marketCap depending on the endpoint schema.
-        # Default to 0 if missing so it falls to the bottom of the sort.
+        # Default to 0 if missing so rank_by_market_cap fills it from yfinance.
         mcap = row.get("marketCap") or row.get("market_cap") or 0.0
         try:
             mcap = float(mcap)
@@ -157,97 +175,84 @@ def _fmp_nasdaq100_rows(path: str) -> List[Dict[str, Any]]:
     return non_financials
 
 
-def _fetch_nasdaq100_from_nasdaq_api() -> List[Dict[str, Any]]:
-    """Nasdaq-100 rows ({symbol, mcap}) from Nasdaq's own public list -- no key.
+def _fetch_sp500_from_wikipedia() -> List[Dict[str, Any]]:
+    """Non-financial S&P 500 rows ({symbol, mcap}) from Wikipedia's constituent
+    table -- no key. Market cap is left at 0 for rank_by_market_cap to fill.
 
-    The no-key fallback for when FMP's constituent endpoints are restricted on
-    the current plan (HTTP 402). No sector here, and none needed: the index
-    methodology already excludes financial companies. Market cap comes as a
-    formatted string ("4,961,437,432,800"); anything unparseable is left at 0
-    for rank_by_market_cap to fill from yfinance.
-
-    Raises on a bad response, an unexpected shape, or a list whose size is not
-    plausibly the Nasdaq-100 -- never returns a silently wrong universe.
+    Raises on a bad response, a missing column, or a list whose size is not
+    plausibly the S&P 500 -- never returns a silently wrong universe.
     """
-    resp = requests.get(NASDAQ_100_API_URL, headers=NASDAQ_API_HEADERS, timeout=HTTP_TIMEOUT)
+    resp = requests.get(SP500_WIKIPEDIA_URL, headers=WIKIPEDIA_HEADERS, timeout=HTTP_TIMEOUT)
     resp.raise_for_status()
     try:
-        rows = resp.json()["data"]["data"]["rows"]
-    except (ValueError, KeyError, TypeError) as exc:
-        raise RuntimeError(f"nasdaq.com: unexpected response shape ({type(exc).__name__}: {exc})") from None
-    if not isinstance(rows, list):
-        raise RuntimeError("nasdaq.com: 'rows' is not a list")
+        table = pd.read_html(io.StringIO(resp.text), match="Symbol")[0]
+        symbols = table["Symbol"]
+        sectors = table["GICS Sector"]
+    except (ValueError, KeyError, IndexError) as exc:
+        raise RuntimeError(f"wikipedia: unexpected page shape ({type(exc).__name__}: {exc})") from None
 
     out: List[Dict[str, Any]] = []
     seen: Set[str] = set()
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        # BRK.B / BRK/B -> BRK-B, the form yfinance and the rest of the pipeline use.
-        sym = str(row.get("symbol", "")).strip().upper().replace(".", "-").replace("/", "-")
+    for raw_symbol, sector in zip(symbols, sectors):
+        sym = _normalize_symbol(raw_symbol)
         if not sym or sym in seen:
             continue
         seen.add(sym)
-        try:
-            mcap = float(str(row.get("marketCap", "")).replace(",", ""))
-        except ValueError:
-            mcap = 0.0
-        out.append({"symbol": sym, "mcap": mcap})
+        if "financial" in str(sector).lower():
+            continue
+        out.append({"symbol": sym, "mcap": 0.0})
 
-    if not NASDAQ_100_MIN_PLAUSIBLE_SIZE <= len(out) <= NASDAQ_100_MAX_PLAUSIBLE_SIZE:
-        raise RuntimeError(
-            f"nasdaq.com: {len(out)} constituents, expected "
-            f"{NASDAQ_100_MIN_PLAUSIBLE_SIZE}-{NASDAQ_100_MAX_PLAUSIBLE_SIZE}"
-        )
+    # Size-check the whole listing, before financials were dropped.
+    _check_plausible_size("wikipedia", len(seen))
     return out
 
 
-def fetch_nasdaq100_top(size: int = TARGET_UNIVERSE_SIZE, keep_all: bool = False) -> List[str]:
-    """Fetch Nasdaq-100, filter financials, rank by market cap, take the top `size`
+def fetch_sp500_top(size: int = TARGET_UNIVERSE_SIZE, keep_all: bool = False) -> List[str]:
+    """Fetch the S&P 500, filter financials, rank by market cap, take the top `size`
     (or, with `keep_all`, every ranked constituent -- still [] below `size`).
 
-    Sources in order: FMP's two constituent endpoints, then Nasdaq's public list.
+    Sources in order: FMP's two constituent endpoints, then Wikipedia's table.
     Every failed source is printed with its reason (for journalctl) before moving
     on; never raises -- [] if all of them fail.
     """
     sources = [
-        (path, lambda path=path: _fmp_nasdaq100_rows(path))
-        for path in ("/stable/nasdaq-constituent", "/api/v3/nasdaq_constituent")
+        (path, lambda path=path: _fmp_sp500_rows(path))
+        for path in ("/stable/sp500-constituent", "/api/v3/sp500_constituent")
     ]
-    sources.append(("nasdaq.com", _fetch_nasdaq100_from_nasdaq_api))
+    sources.append(("wikipedia", _fetch_sp500_from_wikipedia))
 
     for name, fetch_rows in sources:
         try:
             top = rank_by_market_cap(fetch_rows(), size, keep_all=keep_all)
         except Exception as exc:
-            print(sanitize(f"  nasdaq constituents: {name} failed: {exc}"))
+            print(sanitize(f"  sp500 constituents: {name} failed: {exc}"))
             continue
         if top:
             return top
-        print(f"  nasdaq constituents: {name} failed: fewer than {size} constituents with a market cap")
+        print(f"  sp500 constituents: {name} failed: fewer than {size} constituents with a market cap")
 
-    print("  nasdaq constituents: every source failed, returning []")
+    print("  sp500 constituents: every source failed, returning []")
     return []
 
 
 def build_equity_universe() -> List[str]:
-    """Top-25 Nasdaq-100 universe, largest market cap first.
+    """Top-25 S&P 500 universe, largest market cap first.
 
     A list, not a set: the order is meaningful (the funnel breaks score ties by
     it). Empty only if the fetch fails, in which case the caller falls back to
     whatever symbols.yaml or config.yaml already has.
     """
-    return fetch_nasdaq100_top(TARGET_UNIVERSE_SIZE)
+    return fetch_sp500_top(TARGET_UNIVERSE_SIZE)
 
 
 def build_equity_pool() -> List[str]:
-    """Every non-financial Nasdaq-100 constituent, largest market cap first.
+    """Every non-financial S&P 500 constituent, largest market cap first.
 
     The top TARGET_UNIVERSE_SIZE of it are the week's universe; the whole list is
     what funnel.prefilter scans each scheduled cycle for breakouts outside it.
     Same all-or-nothing rule: [] if fewer than TARGET_UNIVERSE_SIZE rank.
     """
-    return fetch_nasdaq100_top(TARGET_UNIVERSE_SIZE, keep_all=True)
+    return fetch_sp500_top(TARGET_UNIVERSE_SIZE, keep_all=True)
 
 
 _MIN_TRADING_DAYS_FOR_MOMENTUM = 2

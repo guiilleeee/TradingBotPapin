@@ -79,7 +79,7 @@ def load_config(
     ends up with nothing to trade because the weekly job hasn't run yet, or broke.
 
     The one other thing read from symbols.yaml is `pool`, the full non-financial
-    Nasdaq-100. It goes into `config["prefilter_pool"]` and only ever feeds
+    S&P 500. It goes into `config["prefilter_pool"]` and only ever feeds
     funnel.prefilter's list of symbols it *may* analyse on a breakout. It has
     the same limit as `symbols`: it names symbols and can set nothing else.
 
