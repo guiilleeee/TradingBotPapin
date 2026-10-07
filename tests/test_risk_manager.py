@@ -225,3 +225,58 @@ def test_sell_levels_are_not_side_checked():
     """A sell's levels are never used once it executes (see rule 4b's comment)."""
     raw = buy(action="sell", stop_loss_price=105.0, take_profit_price=90.0)
     assert validate(raw).action == "sell"
+
+
+# ----------------------------------------------- confidence-scaled sizing
+
+# Live-like settings: threshold 0.58, floor 10%, cap 25%, risk backstop 3%.
+SCALED = dict(
+    min_confidence=0.58, max_risk_pct=3.0, max_absolute_position_pct=25.0,
+    min_position_size_pct=10.0, full_size_confidence=0.90,
+)
+
+
+@pytest.mark.parametrize("confidence, expected", [
+    (0.58, 10.0),    # at the threshold: the floor
+    (0.65, 13.28125),
+    (0.74, 17.5),    # halfway up the ramp
+    (0.85, 22.65625),
+    (0.90, 25.0),    # full size
+    (0.97, 25.0),    # flat above it
+])
+def test_size_rises_linearly_with_confidence(confidence, expected):
+    # 5% stop: the old rule would give 3 / 0.05 = 60%, clamped to the cap.
+    result = validate(buy(confidence=confidence), **SCALED)
+    assert result.action == "buy"
+    assert result.position_size_pct == pytest.approx(expected)
+
+
+def test_scaled_size_ignores_the_stop_distance_until_the_risk_backstop_binds():
+    tight = validate(buy(confidence=0.74, stop_loss_price=97.0), **SCALED)  # 3% stop
+    wide = validate(buy(confidence=0.74, stop_loss_price=92.0), **SCALED)   # 8% stop
+    assert tight.position_size_pct == pytest.approx(17.5)
+    assert wide.position_size_pct == pytest.approx(17.5)
+
+
+def test_risk_backstop_still_caps_a_full_confidence_buy():
+    # 20% stop at 3% max risk -> 15% position, below the 25% confidence size.
+    result = validate(buy(confidence=0.95, stop_loss_price=80.0, take_profit_price=140.0), **SCALED)
+    assert result.position_size_pct == pytest.approx(15.0)
+    assert result.position_size_pct * 0.20 <= 3.0 + 1e-9
+
+
+def test_floor_is_pulled_down_by_a_tighter_per_symbol_cap():
+    result = validate(buy(confidence=0.58), **{**SCALED, "max_absolute_position_pct": 8.0})
+    assert result.position_size_pct == pytest.approx(8.0)
+
+
+def test_scaling_is_off_without_min_position_size_pct():
+    legacy = {k: v for k, v in SCALED.items() if k not in ("min_position_size_pct", "full_size_confidence")}
+    result = validate(buy(confidence=0.60), **legacy)
+    assert result.position_size_pct == pytest.approx(25.0)  # 60% clamped to the cap
+
+
+def test_scaling_never_changes_a_sell_or_a_rejection():
+    assert validate(buy(confidence=0.50), **SCALED).action == "hold"
+    sell = validate(buy(action="sell", confidence=0.60), **SCALED)
+    assert sell.action == "sell"

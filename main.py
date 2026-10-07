@@ -59,6 +59,10 @@ def default_symbols_path(config_path: str) -> str:
     return os.path.join(directory, DEFAULT_SYMBOLS_PATH) if directory else DEFAULT_SYMBOLS_PATH
 
 
+def _opt_float(value: Any) -> Optional[float]:
+    return None if value is None else float(value)
+
+
 def load_config(
     path: str = DEFAULT_CONFIG_PATH, symbols_path: Optional[str] = None
 ) -> Dict[str, Any]:
@@ -1015,6 +1019,10 @@ def _process_symbol(
         atr=indicators.atr_14,
         stop_atr_min=stop_atr_min,
         stop_atr_max=stop_atr_max,
+        min_position_size_pct=_opt_float(config.get("min_position_size_pct")),
+        full_size_confidence=float(
+            config.get("full_size_confidence", risk_manager.DEFAULT_FULL_SIZE_CONFIDENCE)
+        ),
     )
 
     if final.action == "buy" and existing_position is None and book.exposures is not None:

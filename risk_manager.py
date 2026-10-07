@@ -29,6 +29,29 @@ MIN_STOP_DISTANCE_PCT = 0.003  # 0.3%
 # parameter, e.g. existing tests -- every real caller reads it from config.
 DEFAULT_MIN_REWARD_RISK_RATIO = 1.5
 
+# Confidence at which a buy reaches the full position-size cap when confidence
+# scaling is on. Below 1.0 on purpose: the model rarely reports more than ~0.9,
+# so a ramp ending at 1.0 would make the cap unreachable.
+DEFAULT_FULL_SIZE_CONFIDENCE = 0.90
+
+
+def confidence_scaled_size_pct(
+    confidence: float,
+    min_confidence: float,
+    floor_pct: float,
+    cap_pct: float,
+    full_size_confidence: float = DEFAULT_FULL_SIZE_CONFIDENCE,
+) -> float:
+    """Position size (% of equity) for a given confidence: a straight line from
+    `floor_pct` at `min_confidence` up to `cap_pct` at `full_size_confidence`,
+    flat outside that range. The floor never exceeds the cap (a tighter
+    per-symbol cap pulls the whole line down)."""
+    floor_pct = min(floor_pct, cap_pct)
+    span = full_size_confidence - min_confidence
+    t = 1.0 if span <= 0 else (confidence - min_confidence) / span
+    t = max(0.0, min(1.0, t))
+    return floor_pct + (cap_pct - floor_pct) * t
+
 
 def validate(
     raw: SignalOutput,
@@ -44,6 +67,8 @@ def validate(
     atr: Optional[float] = None,
     stop_atr_min: float = 0.0,
     stop_atr_max: float = 0.0,
+    min_position_size_pct: Optional[float] = None,
+    full_size_confidence: float = DEFAULT_FULL_SIZE_CONFIDENCE,
 ) -> TradeSignal:
     """Apply the risk rules in order and return the signal execution may act on.
 
@@ -70,6 +95,13 @@ def validate(
             [min, max] x atr. Tighter is inside normal daily noise; wider sizes
             the position down to almost nothing. 0 disables either bound, and
             an unknown ATR skips the rule.
+        min_position_size_pct: turns on confidence-scaled sizing for buys. A buy at
+            `min_confidence` gets this size, rising linearly to
+            `max_absolute_position_pct` at `full_size_confidence`. `max_risk_pct`
+            stays a hard backstop: the size is never larger than what risks
+            that % of equity at the stop. None keeps the older behaviour (the
+            risk-based size, clamped to the cap).
+        full_size_confidence: confidence at which a buy reaches the cap.
     """
     reasons: List[str] = []
 
@@ -193,6 +225,13 @@ def validate(
 
                 if action in ("buy", "sell"):
                     computed = max_risk_pct / stop_distance_pct
+                    if action == "buy" and min_position_size_pct is not None:
+                        # The risk-based size is now the backstop; confidence
+                        # decides where inside the floor..cap range we land.
+                        computed = min(computed, confidence_scaled_size_pct(
+                            raw.confidence, min_confidence, min_position_size_pct,
+                            max_absolute_position_pct, full_size_confidence,
+                        ))
                     if computed > max_absolute_position_pct:
                         reasons.append(
                             f"risk-based size {computed:.2f}% clamped to the "

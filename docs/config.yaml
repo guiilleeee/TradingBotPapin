@@ -31,6 +31,14 @@ circuit_breaker_loss_pct: 3.0
 max_risk_pct: 3.0
 max_absolute_position_pct: 25.0
 
+# Confidence-scaled sizing for buys (risk_manager.py). A buy at min_confidence_live
+# gets min_position_size_pct of equity, rising in a straight line to
+# max_absolute_position_pct at full_size_confidence. max_risk_pct above stays a hard
+# backstop: a buy is never sized to risk more than that % of equity at its stop.
+# Remove min_position_size_pct to go back to risk-based sizing clamped to the cap.
+min_position_size_pct: 10.0
+full_size_confidence: 0.90
+
 # Minimum acceptable reward:risk (take-profit distance over stop-loss distance,
 # both measured from current_price) -- a structural requirement, applied
 # identically in live and simulation, not part of the confidence-threshold
