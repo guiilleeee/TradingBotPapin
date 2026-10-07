@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-07T23:05:05.594266+00:00",
+  "generated_at": "2026-10-07T23:20:17.532116+00:00",
   "is_live": true,
   "positions": [
     {
@@ -25,36 +25,36 @@
       "asset_class": "crypto",
       "qty": 0.000639737,
       "avg_entry_price": 84076.165,
-      "current_price": 83184.9375,
-      "unrealized_pnl_usd": -0.5701512071674959,
-      "unrealized_pnl_pct": -1.0600239675537027,
+      "current_price": 83210.5,
+      "unrealized_pnl_usd": -0.5537979301049959,
+      "unrealized_pnl_pct": -1.0296199880191925,
       "stop_loss_price": 79585.99,
       "take_profit_price": 92971.67,
       "opened_at": "2026-09-30T17:32:17.851113+00:00",
-      "return_1w_pct": -0.44152849402046,
-      "return_1m_pct": 5.143199317377634,
-      "return_6m_pct": 16.958673255863776,
-      "return_1y_pct": -31.507624224894005,
-      "return_3y_pct": 197.77938057575716,
-      "return_6y_pct": 662.0679172442323
+      "return_1w_pct": -0.41093445254665184,
+      "return_1m_pct": 5.175509530179689,
+      "return_6m_pct": 16.994614330954462,
+      "return_1y_pct": -31.48657670825974,
+      "return_3y_pct": 197.87088735143956,
+      "return_6y_pct": 662.3020985962896
     },
     {
       "symbol": "SOL-USD",
       "asset_class": "crypto",
       "qty": 0.300296246,
       "avg_entry_price": 117.4,
-      "current_price": 116.05999755859375,
-      "unrealized_pnl_usd": -0.40239770278513354,
-      "unrealized_pnl_pct": -1.141399013122879,
+      "current_price": 116.2300033569336,
+      "unrealized_pnl_usd": -0.35134559974544544,
+      "unrealized_pnl_pct": -0.9965899855761573,
       "stop_loss_price": 107.87,
       "take_profit_price": 134.36,
       "opened_at": "2026-10-01T08:15:25.810458+00:00",
-      "return_1w_pct": -1.6397453584085064,
-      "return_1m_pct": 11.739872799638306,
-      "return_6m_pct": 40.53961568152986,
-      "return_1y_pct": -47.36095333039668,
-      "return_3y_pct": 399.2595395633445,
-      "return_6y_pct": 4806.942869135399
+      "return_1w_pct": -1.4956663133713688,
+      "return_1m_pct": 11.903550437767718,
+      "return_6m_pct": 40.74547945944567,
+      "return_1y_pct": -47.28384714961811,
+      "return_3y_pct": 399.99085972867016,
+      "return_6y_pct": 4814.130606145768
     }
   ]
 }
