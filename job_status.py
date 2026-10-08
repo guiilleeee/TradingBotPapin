@@ -19,7 +19,7 @@ from secrets_redaction import sanitize
 
 DEFAULT_PATH = os.path.join("docs", "job_status.json")
 MAX_RUNS = 60
-MAX_ERROR_CHARS = 200
+MAX_ERROR_CHARS = 300
 
 
 def utc_now_iso() -> str:
@@ -28,12 +28,21 @@ def utc_now_iso() -> str:
 
 def last_error_line(log_text: str) -> str:
     """The last non-empty line of a failed run's output: pytest's summary
-    ("2 failed, 400 passed") or a traceback's final "ValueError: ..."."""
-    for line in reversed((log_text or "").splitlines()):
+    ("2 failed, 400 passed") or a traceback's final "ValueError: ...". When pytest
+    listed failing tests ("FAILED tests/x.py::t - msg"), their ids follow the
+    summary, so the dashboard says which test broke the gate, not just how many."""
+    lines = (log_text or "").splitlines()
+    summary = ""
+    for line in reversed(lines):
         line = line.strip().strip("=").strip()
         if line:
-            return sanitize(line)[:MAX_ERROR_CHARS]
-    return ""
+            summary = line
+            break
+    failed = [ln.strip()[len("FAILED "):].split(" - ", 1)[0] for ln in lines
+              if ln.strip().startswith("FAILED ")]
+    if failed:
+        summary = f"{summary} :: {', '.join(failed)}"
+    return sanitize(summary)[:MAX_ERROR_CHARS]
 
 
 def load_runs(path: str) -> List[Dict[str, Any]]:

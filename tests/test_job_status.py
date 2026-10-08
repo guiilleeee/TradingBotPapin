@@ -17,7 +17,7 @@ def test_a_failed_run_keeps_the_stage_and_last_output_line(tmp_path):
     run = job_status.record_run(path, "cycle", "2026-09-27T14:45:01+00:00", 1, "pytest", log)
     assert run["status"] == "failed"
     assert run["stage"] == "pytest"
-    assert run["error"] == "2 failed, 400 passed in 5.1s"
+    assert run["error"] == "2 failed, 400 passed in 5.1s :: tests/test_x.py::test_y"
 
 
 def test_the_error_line_is_sanitized_and_truncated(tmp_path, monkeypatch):
