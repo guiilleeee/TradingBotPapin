@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-08T22:05:27.978394+00:00",
+  "generated_at": "2026-10-08T22:20:27.827734+00:00",
   "is_live": true,
   "positions": [
     {
@@ -17,7 +17,7 @@
       "return_1m_pct": 7.652903710585046,
       "return_6m_pct": 30.917712865279512,
       "return_1y_pct": 32.4023606917897,
-      "return_3y_pct": 92.76175891463363,
+      "return_3y_pct": 92.76170894940397,
       "return_6y_pct": 200.29981839140984
     },
     {
@@ -25,18 +25,18 @@
       "asset_class": "crypto",
       "qty": 0.000639737,
       "avg_entry_price": 84076.165,
-      "current_price": 81633.8125,
-      "unrealized_pnl_usd": -1.562463261292496,
-      "unrealized_pnl_pct": -2.904928525224715,
+      "current_price": 81749.296875,
+      "unrealized_pnl_usd": -1.488583633683121,
+      "unrealized_pnl_pct": -2.7675716714719245,
       "stop_loss_price": 79585.99,
       "take_profit_price": 92971.67,
       "opened_at": "2026-09-30T17:32:17.851113+00:00",
-      "return_1w_pct": -3.793955675419569,
-      "return_1m_pct": 4.073549586669034,
-      "return_6m_pct": 13.74708505573854,
-      "return_1y_pct": -33.82197690187919,
-      "return_3y_pct": 195.94970361137624,
-      "return_6y_pct": 637.802181022868
+      "return_1w_pct": -3.6578564959276583,
+      "return_1m_pct": 4.220778638699985,
+      "return_6m_pct": 13.90799890532426,
+      "return_1y_pct": -33.72835726802683,
+      "return_3y_pct": 196.36837285523887,
+      "return_6y_pct": 638.8459228393986
     },
     {
       "symbol": "PLTR",
