@@ -185,10 +185,12 @@ def _fetch_sp500_from_wikipedia() -> List[Dict[str, Any]]:
     resp = requests.get(SP500_WIKIPEDIA_URL, headers=WIKIPEDIA_HEADERS, timeout=HTTP_TIMEOUT)
     resp.raise_for_status()
     try:
-        table = pd.read_html(io.StringIO(resp.text), match="Symbol")[0]
+        # flavor pinned: unpinned, a page with no table makes pandas fall back to
+        # bs4/html5lib, and an ImportError there would skip the clean RuntimeError.
+        table = pd.read_html(io.StringIO(resp.text), match="Symbol", flavor="lxml")[0]
         symbols = table["Symbol"]
         sectors = table["GICS Sector"]
-    except (ValueError, KeyError, IndexError) as exc:
+    except (ValueError, KeyError, IndexError, ImportError) as exc:
         raise RuntimeError(f"wikipedia: unexpected page shape ({type(exc).__name__}: {exc})") from None
 
     out: List[Dict[str, Any]] = []
