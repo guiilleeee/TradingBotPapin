@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-12T10:50:08.082872+00:00",
+  "generated_at": "2026-10-12T11:05:10.833546+00:00",
   "is_live": true,
   "positions": [
     {
@@ -16,27 +16,27 @@
       "return_1w_pct": 0.8840577138804928,
       "return_1m_pct": 6.754619952403251,
       "return_6m_pct": 29.468965766547385,
-      "return_1y_pct": 33.00408120794158,
+      "return_1y_pct": 33.00408922627835,
       "return_3y_pct": 91.26245475058596,
-      "return_6y_pct": 196.965311305552
+      "return_6y_pct": 196.96529131909787
     },
     {
       "symbol": "BTC-USD",
       "asset_class": "crypto",
       "qty": 0.000639737,
       "avg_entry_price": 84076.165,
-      "current_price": 83468.25,
-      "unrealized_pnl_usd": -0.38890571835499593,
-      "unrealized_pnl_pct": -0.7230527224927452,
+      "current_price": 83345.1328125,
+      "unrealized_pnl_usd": -0.4676683385346834,
+      "unrealized_pnl_pct": -0.8694880261248761,
       "stop_loss_price": 79585.99,
       "take_profit_price": 92971.67,
       "opened_at": "2026-09-30T17:32:17.851113+00:00",
-      "return_1w_pct": -2.702454601188775,
-      "return_1m_pct": 8.020892522410117,
-      "return_6m_pct": 12.061022647915888,
-      "return_1y_pct": -27.525900962777094,
-      "return_3y_pct": 210.72550360867197,
-      "return_6y_pct": 630.5179835319651
+      "return_1w_pct": -2.845970251033547,
+      "return_1m_pct": 7.861559740440938,
+      "return_6m_pct": 11.89573060049922,
+      "return_1y_pct": -27.63280157756247,
+      "return_3y_pct": 210.26717783703043,
+      "return_6y_pct": 629.4404562140853
     }
   ]
 }
