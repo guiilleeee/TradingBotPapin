@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-16T00:35:05.612365+00:00",
+  "generated_at": "2026-10-16T00:45:22.017291+00:00",
   "is_live": true,
   "positions": [
     {
@@ -7,18 +7,18 @@
       "asset_class": "equity",
       "qty": 0.172732589,
       "avg_entry_price": 338.558,
-      "current_price": 342.9599914550781,
-      "unrealized_pnl_usd": 0.760367380791523,
-      "unrealized_pnl_pct": 1.3002178223755267,
+      "current_price": 342.0,
+      "unrealized_pnl_usd": 0.5945455713380012,
+      "unrealized_pnl_pct": 1.0166647959876984,
       "stop_loss_price": 324.1,
       "take_profit_price": 367.6,
       "opened_at": "2026-09-30T14:47:27.969916+00:00",
-      "return_1w_pct": 1.8682917326980464,
-      "return_1m_pct": 2.966255938847562,
-      "return_6m_pct": 28.953957313662947,
-      "return_1y_pct": 38.93000862338967,
-      "return_3y_pct": 94.35198540801011,
-      "return_6y_pct": 193.16671850336738
+      "return_1w_pct": 0.4641285793853589,
+      "return_1m_pct": 3.2172402305572056,
+      "return_6m_pct": 30.072254006515543,
+      "return_1y_pct": 37.66878210798787,
+      "return_3y_pct": 93.94894297869689,
+      "return_6y_pct": 196.49720671056187
     },
     {
       "symbol": "ABBV",
@@ -34,8 +34,8 @@
       "return_1w_pct": 4.466401197311187,
       "return_1m_pct": 8.29354887260294,
       "return_6m_pct": 36.98195396017998,
-      "return_1y_pct": 27.558310882523827,
-      "return_3y_pct": 110.39972122086148,
+      "return_1y_pct": 27.558319640730254,
+      "return_3y_pct": 110.39969739284454,
       "return_6y_pct": 313.7542704681814
     }
   ]
