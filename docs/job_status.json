@@ -1,14 +1,6 @@
 {
-  "generated_at": "2026-10-21T02:01:39.943895+00:00",
+  "generated_at": "2026-10-21T14:47:55.642742+00:00",
   "runs": [
-    {
-      "job": "cycle",
-      "started_at": "2026-10-01T14:45:22+00:00",
-      "finished_at": "2026-10-01T14:45:47.210528+00:00",
-      "status": "failed",
-      "stage": "pytest",
-      "error": "1 failed, 598 passed in 22.61s"
-    },
     {
       "job": "cycle",
       "started_at": "2026-10-01T17:30:25+00:00",
@@ -477,6 +469,14 @@
       "job": "cycle",
       "started_at": "2026-10-21T02:00:06+00:00",
       "finished_at": "2026-10-21T02:01:39.943478+00:00",
+      "status": "ok",
+      "stage": "cycle",
+      "error": ""
+    },
+    {
+      "job": "cycle",
+      "started_at": "2026-10-21T14:45:03+00:00",
+      "finished_at": "2026-10-21T14:47:55.640672+00:00",
       "status": "ok",
       "stage": "cycle",
       "error": ""
