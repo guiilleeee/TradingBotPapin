@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-22T13:35:07.822812+00:00",
+  "generated_at": "2026-10-22T13:50:13.812460+00:00",
   "is_live": true,
   "positions": [
     {
@@ -7,18 +7,18 @@
       "asset_class": "equity",
       "qty": 0.172732589,
       "avg_entry_price": 338.558,
-      "current_price": 345.9989929199219,
-      "unrealized_pnl_usd": 1.2853019717887764,
-      "unrealized_pnl_pct": 2.1978487939797287,
+      "current_price": 345.57000732421875,
+      "unrealized_pnl_usd": 1.2112021791992682,
+      "unrealized_pnl_pct": 2.0711391620398256,
       "stop_loss_price": 324.1,
       "take_profit_price": 367.6,
       "opened_at": "2026-09-30T14:47:27.969916+00:00",
-      "return_1w_pct": 1.169296175415746,
-      "return_1m_pct": 1.8392915143257804,
-      "return_6m_pct": 26.7660711736061,
-      "return_1y_pct": 34.36916200476408,
-      "return_3y_pct": 102.70443742999329,
-      "return_6y_pct": 210.34192042983705
+      "return_1w_pct": 1.0438617907072345,
+      "return_1m_pct": 1.7130264383278249,
+      "return_6m_pct": 26.608900720309613,
+      "return_1y_pct": 34.202564886893036,
+      "return_3y_pct": 102.45313316698295,
+      "return_6y_pct": 209.95716533687258
     }
   ]
 }
