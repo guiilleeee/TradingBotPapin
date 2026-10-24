@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-24T01:20:32.853457+00:00",
+  "generated_at": "2026-10-24T01:35:07.651854+00:00",
   "is_live": true,
   "positions": [
     {
@@ -7,36 +7,36 @@
       "asset_class": "equity",
       "qty": 0.172732589,
       "avg_entry_price": 338.558,
-      "current_price": 348.2200012207031,
-      "unrealized_pnl_usd": 1.6689424857732125,
-      "unrealized_pnl_pct": 2.8538688262286227,
+      "current_price": 347.7300109863281,
+      "unrealized_pnl_usd": 1.5843052040049017,
+      "unrealized_pnl_pct": 2.709140231903584,
       "stop_loss_price": 324.1,
       "take_profit_price": 367.6,
       "opened_at": "2026-09-30T14:47:27.969916+00:00",
-      "return_1w_pct": 1.818713807223138,
-      "return_1m_pct": 2.493009925151757,
-      "return_6m_pct": 27.57979751991129,
-      "return_1y_pct": 35.23167745986417,
-      "return_3y_pct": 104.00563933315982,
-      "return_6y_pct": 212.33402040775962
+      "return_1w_pct": 1.2432363703149152,
+      "return_1m_pct": 3.177859569695074,
+      "return_6m_pct": 28.514197231282456,
+      "return_1y_pct": 34.45355374381742,
+      "return_3y_pct": 103.20172784698048,
+      "return_6y_pct": 211.89452635421193
     },
     {
       "symbol": "PG",
       "asset_class": "equity",
       "qty": 0.180260596,
       "avg_entry_price": 161.322,
-      "current_price": 165.58999633789062,
-      "unrealized_pnl_usd": 0.7693515635939809,
-      "unrealized_pnl_pct": 2.645638126164207,
+      "current_price": 161.02000427246094,
+      "unrealized_pnl_usd": -0.05443792983564551,
+      "unrealized_pnl_pct": -0.18720058487935454,
       "stop_loss_price": 156.5,
       "take_profit_price": 170.7,
       "opened_at": "2026-10-23T14:47:10.953983+00:00",
-      "return_1w_pct": 5.417618033891269,
-      "return_1m_pct": 11.719062862051356,
-      "return_6m_pct": 15.354008555161581,
-      "return_1y_pct": 11.997021973369893,
-      "return_3y_pct": 20.198127820577348,
-      "return_6y_pct": 34.73365408204718
+      "return_1w_pct": 1.7169433888898356,
+      "return_1m_pct": 9.970803972477205,
+      "return_6m_pct": 10.201063600485227,
+      "return_1y_pct": 9.619845036870945,
+      "return_3y_pct": 16.281094478023572,
+      "return_6y_pct": 31.882571024808737
     }
   ]
 }
