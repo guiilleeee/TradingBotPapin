@@ -1,6 +1,6 @@
 # Generated weekly by screening.py -- do not hand-edit, it is overwritten every run.
 # Contributes ONLY the `symbols` list to the trading cycle; every risk parameter, threshold, and provider setting stays in config.yaml.
-generated_at: '2026-10-19T06:01:49.786813+00:00'
+generated_at: '2026-10-26T06:01:54.965417+00:00'
 symbols:
 - symbol: NVDA
   asset_class: equity
@@ -32,9 +32,9 @@ symbols:
   asset_class: equity
 - symbol: ABBV
   asset_class: equity
-- symbol: INTC
-  asset_class: equity
 - symbol: PLTR
+  asset_class: equity
+- symbol: INTC
   asset_class: equity
 - symbol: CVX
   asset_class: equity
@@ -46,64 +46,64 @@ symbols:
   asset_class: equity
 - symbol: ORCL
   asset_class: equity
-- symbol: PG
-  asset_class: equity
 - symbol: UNH
+  asset_class: equity
+- symbol: PG
   asset_class: equity
 - symbol: MRK
   asset_class: equity
 scores:
   equity:
     NVDA:
-      score: 0.8208
+      score: 0.6998
     AAPL:
-      score: 0.6723
+      score: 0.6146
     GOOGL:
-      score: 0.8859
+      score: 0.7633
     MSFT:
-      score: 0.8376
+      score: 0.663
     AMZN:
-      score: 0.8505
+      score: 0.7412
     META:
-      score: 0.9127
+      score: 0.7145
     AVGO:
-      score: 0.9431
+      score: 0.637
     TSLA:
-      score: 0.8827
+      score: 0.6959
     LLY:
-      score: 0.3147
+      score: 0.5801
     MU:
-      score: 0.9611
+      score: 0.892
     WMT:
-      score: 0.6919
+      score: 0.735
     AMD:
-      score: 0.9473
+      score: 0.8143
     XOM:
-      score: 0.8478
+      score: 0.8662
     JNJ:
-      score: 0.5794
+      score: 0.6422
     ABBV:
-      score: 0.523
-    INTC:
-      score: 0.982
+      score: 0.4217
     PLTR:
-      score: 0.9786
+      score: 0.6087
+    INTC:
+      score: 0.8591
     CVX:
-      score: 0.8058
+      score: 0.8395
     COST:
-      score: 0.4235
+      score: 0.5026
     CSCO:
-      score: 0.8446
+      score: 0.7864
     KO:
-      score: 0.8461
+      score: 0.9028
     ORCL:
-      score: 0.9559
-    PG:
-      score: 0.7622
+      score: 0.6575
     UNH:
-      score: 0.6705
+      score: 0.6168
+    PG:
+      score: 0.8098
     MRK:
-      score: 0.6036
+      score: 0.7175
 pool:
 - NVDA
 - AAPL
@@ -120,412 +120,412 @@ pool:
 - XOM
 - JNJ
 - ABBV
-- INTC
 - PLTR
+- INTC
 - CVX
 - COST
 - CSCO
 - KO
 - ORCL
-- PG
 - UNH
+- PG
 - MRK
-- CAT
-- LRCX
-- GE
-- AMAT
-- PM
 - HD
-- NFLX
-- DELL
+- CAT
 - PANW
+- PM
+- AMAT
+- GE
+- DELL
+- LRCX
+- NFLX
+- CRWD
+- TXN
 - RTX
 - TMO
-- TXN
-- GEV
+- IBM
 - AMGN
-- CRWD
 - LIN
 - ANET
-- IBM
-- KLAC
+- GEV
 - MRVL
 - CRM
-- APH
-- GILD
-- ADI
 - DIS
-- SNDK
-- VZ
+- GILD
+- KLAC
+- ADI
 - QCOM
-- ABT
+- VZ
 - PEP
 - COP
-- DE
+- APH
+- ABT
+- SNDK
 - MCD
+- DE
 - UNP
-- TMUS
-- WELL
-- PFE
 - NEE
-- TJX
-- DHR
-- T
-- ETN
-- ISRG
-- BA
+- PFE
+- WELL
 - NOW
-- STX
-- UBER
+- DHR
+- TJX
+- ISRG
+- TMUS
 - ACN
-- MPC
-- VLO
+- BA
+- STX
+- ETN
+- T
 - LMT
+- UBER
+- MPC
 - VRTX
-- BKNG
-- MO
-- NEM
-- WDC
 - FTNT
+- WDC
 - BMY
-- PH
+- MO
 - MDT
+- BKNG
+- VLO
+- ADP
 - PLD
 - CVS
-- MCK
-- PSX
-- ADP
-- GLW
 - SYK
+- MCK
 - SBUX
+- NEM
+- PSX
 - LOW
+- PH
 - SO
-- ABNB
-- MAR
-- TT
-- FCX
-- HCA
-- EQIX
-- CEG
+- GLW
 - ADBE
-- PWR
+- MAR
+- HCA
+- ABNB
+- TT
 - DUK
-- GD
-- ELV
-- WM
-- CSX
-- EMR
-- MNST
-- APP
 - DDOG
-- HWM
-- JCI
-- CDNS
-- WMB
-- SNPS
-- MRNA
+- WM
+- ELV
+- GD
+- EQIX
+- CSX
+- FCX
 - INTU
-- AMT
+- MNST
+- EMR
+- CEG
 - MMM
 - CTAS
+- AMT
+- WMB
+- APP
+- JCI
+- CDNS
 - EOG
 - UPS
-- MDLZ
-- DASH
 - REGN
+- SNPS
+- PWR
+- MDLZ
 - SHW
-- ECL
 - CI
-- VRT
+- ECL
 - CMCSA
+- MRNA
+- MSI
 - HLT
 - ITW
-- MSI
-- KMI
-- ROST
-- CL
-- LITE
-- RCL
 - NOC
-- GM
 - SLB
-- NSC
+- DASH
+- KMI
 - HPE
-- CMI
-- ORLY
+- CL
+- VRT
+- HWM
+- NSC
+- RCL
 - RSG
-- TGT
+- ROST
+- ORLY
+- CMI
 - FDX
 - AEP
 - HON
-- APD
+- TGT
+- LITE
 - SPG
-- DLR
-- BE
-- COR
-- BSX
+- APD
 - URI
+- BSX
 - TRGP
-- TDG
-- GWW
+- GM
 - OXY
-- TEL
-- MPWR
-- CAH
+- DLR
+- GWW
+- COR
+- TDG
 - OKE
+- TEL
 - FAST
-- PCAR
-- NUE
 - NXPI
-- FANG
-- AME
-- KEYS
-- D
-- DVN
+- NUE
 - PSA
+- CAH
+- FANG
+- D
+- BE
+- GRMN
+- DVN
 - CRH
+- PCAR
+- MPWR
 - BKR
 - NKE
-- GRMN
+- AME
 - SRE
-- EBAY
-- HONA
-- O
 - BDX
-- VST
-- TER
-- FIX
-- AZO
-- VEEV
-- ETR
+- EBAY
+- O
+- KEYS
 - ADSK
+- VEEV
+- AZO
+- HONA
 - EW
+- ETR
 - HUM
-- DAL
-- F
-- A
-- WAB
-- VYLR
-- XEL
-- VMRK
-- ROK
-- CIEN
-- KDP
-- LHX
 - WDAY
-- COHR
+- DAL
+- VYLR
+- A
+- VMRK
+- XEL
+- TER
+- ROK
+- LHX
+- KDP
+- VST
 - CARR
-- EXC
-- FERG
-- IDXX
-- VTR
+- F
+- WAB
 - IQV
+- EXC
+- CIEN
 - WAT
-- CVNA
-- ED
-- P
-- YUM
-- SYY
-- MCHP
-- NTAP
-- ADM
-- PAYX
-- LYV
-- ILMN
-- PCG
-- DHI
-- ODFL
-- CBRE
-- TTWO
-- EL
+- VTR
+- IDXX
+- FERG
 - ROP
-- CMG
-- KR
+- ED
+- NTAP
+- PAYX
+- CVNA
+- DHI
+- COHR
+- P
+- FIX
+- YUM
+- ILMN
+- LYV
+- MCHP
 - TWLO
+- SYY
+- KR
+- EL
+- SKYD
+- ADM
+- TTWO
+- PCG
+- ODFL
 - KVUE
-- PEG
-- MLM
-- WEC
+- BIIB
 - KMB
 - CCI
-- SKYD
-- CCL
-- EXPE
-- STLD
-- BIIB
-- HSY
-- CNC
-- EQT
+- WEC
+- MLM
+- PEG
 - RMD
-- IRM
-- FLEX
+- CBRE
+- CCL
+- CMG
+- EQT
+- EXPE
+- CNC
+- STLD
+- AXON
+- HSY
 - VMC
 - ZTS
 - MTD
-- DXCM
-- EME
-- AXON
-- GEHC
 - CTSH
+- IRM
+- GEHC
 - UAL
-- IR
-- RDDT
-- DG
-- EXR
-- WSM
-- AEE
-- JBL
-- TDY
-- ATO
-- KHC
-- 'ON'
-- HAL
-- VRSN
-- OTIS
 - HPQ
+- EXR
+- AEE
+- WSM
+- DXCM
+- KHC
+- DG
+- ATO
+- TDY
+- HAL
+- OTIS
+- EME
+- IR
+- AWK
+- FLEX
+- JBL
+- 'ON'
 - FOXA
+- RDDT
 - WST
 - DTE
-- AWK
-- FE
 - CNP
-- PPL
-- DOV
-- VICI
-- DGX
+- VRSN
 - CPRT
-- LH
-- CASY
-- EXPD
+- DOV
 - ULTA
-- ES
-- FFIV
-- VRSK
+- DGX
+- FE
+- LH
+- PPL
+- VICI
 - ECHO
-- CHD
+- CASY
+- FFIV
+- EXPD
+- VRSK
 - VLTO
-- LVS
+- ES
+- XYL
+- CHD
+- PPG
+- IFF
 - DRI
 - HUBB
-- XYL
-- TPL
-- Q
-- PPG
-- TPR
-- DLTR
-- IFF
-- RL
-- OMC
-- INCY
-- EXE
-- STZ
-- NRG
-- STE
-- PHM
 - DOW
-- SW
+- OMC
+- DLTR
+- STZ
+- INCY
+- TPL
+- LVS
+- PHM
+- Q
+- STE
+- RL
+- EXE
 - EIX
-- JBHT
-- VTRS
-- CMS
 - PKG
-- PTC
+- SW
+- TPR
+- CMS
 - LYB
-- NI
-- SMCI
-- BG
-- AMCR
-- SBAC
-- BR
-- BBY
-- LUV
-- TSN
-- EVRG
-- SNA
 - EFX
+- SMCI
+- AMCR
+- JBHT
+- PTC
+- BBY
+- NI
+- BR
+- VTRS
 - CDW
-- SWKS
-- FSLR
-- GPC
+- LUV
 - LEN
-- CF
+- TSN
+- BG
+- SWKS
+- SBAC
+- EVRG
+- NRG
 - ZBH
-- IP
-- NDSN
-- LNT
-- GIS
-- FTV
+- FSLR
+- SNA
 - DD
 - ZBRA
-- IEX
-- ESS
-- TSCO
+- GIS
+- FTV
+- CF
 - APA
+- LNT
+- ESS
+- NDSN
 - RVTY
-- FDXF
+- FICO
+- IP
+- TSCO
 - BALL
 - J
-- FICO
-- HST
-- CHRW
-- NWSA
-- ROL
-- INVH
-- NVR
 - LDOS
-- KIM
-- TYL
-- SOLV
-- GEN
-- MAS
-- CRL
-- WY
-- SWK
+- GPC
+- HST
+- IEX
+- ROL
 - HAS
-- TRMB
-- SJM
-- MAA
-- GDDY
-- REG
+- NWSA
+- CRL
+- FDXF
+- CHRW
+- INVH
+- TYL
+- NVR
+- KIM
 - ALLE
-- AVY
-- BF-B
-- CSGP
-- DOC
-- BAX
-- TXT
+- MAS
+- SWK
+- GEN
+- TRMB
 - IT
-- TKO
+- SOLV
+- GDDY
+- WY
+- MAA
+- SJM
+- AVY
+- CSGP
+- REG
+- BF-B
 - AKAM
-- CHTR
-- PNW
-- MKC
+- DOC
+- TXT
+- BAX
 - LII
-- DVA
-- DECK
+- MKC
+- PNW
+- TKO
+- CHTR
 - CPT
-- GNRC
+- DVA
+- COO
+- HRL
+- UDR
+- LULU
 - TECH
 - ALB
-- LULU
-- HRL
-- COO
-- UDR
+- DECK
+- GNRC
 - UHS
+- ALGN
 - HII
 - AES
 - CLX
-- ALGN
-- DPZ
-- HSIC
 - PODD
+- DPZ
 - BXP
-- APTV
+- HSIC
 - FRT
 - PNR
+- APTV
 - AOS
 - WYNN
-- MGM
 - ARE
+- MGM
 - NCLH
 - MOS
