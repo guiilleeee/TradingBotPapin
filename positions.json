@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-28T20:05:17.947751+00:00",
+  "generated_at": "2026-10-28T20:20:14.303468+00:00",
   "is_live": true,
   "positions": [
     {
@@ -17,26 +17,26 @@
       "return_1m_pct": 1.604607793652102,
       "return_6m_pct": 27.49142258372599,
       "return_1y_pct": 28.289994102811477,
-      "return_3y_pct": 107.1574792718336,
-      "return_6y_pct": 207.64763699033648
+      "return_3y_pct": 107.15751736154044,
+      "return_6y_pct": 207.64757398538865
     },
     {
       "symbol": "PG",
       "asset_class": "equity",
       "qty": 0.180260596,
       "avg_entry_price": 161.322,
-      "current_price": 158.3699951171875,
-      "unrealized_pnl_usd": -0.5321301595706919,
-      "unrealized_pnl_pct": -1.829883638197205,
+      "current_price": 158.25999450683594,
+      "unrealized_pnl_usd": -0.5519589351530283,
+      "unrealized_pnl_pct": -1.8980706246910284,
       "stop_loss_price": 156.5,
       "take_profit_price": 170.7,
       "opened_at": "2026-10-23T14:47:10.953983+00:00",
-      "return_1w_pct": 1.643970871218281,
-      "return_1m_pct": 6.970678681042064,
-      "return_6m_pct": 9.660286629392445,
-      "return_1y_pct": 7.66121248288576,
-      "return_3y_pct": 16.4967955046035,
-      "return_6y_pct": 34.247343622028346
+      "return_1w_pct": 1.5733710153168046,
+      "return_1m_pct": 6.896379001131558,
+      "return_6m_pct": 9.584118801947383,
+      "return_1y_pct": 7.5864220121057535,
+      "return_3y_pct": 16.41589224264979,
+      "return_6y_pct": 34.15410679592124
     }
   ]
 }
