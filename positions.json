@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-02T16:35:26.841924+00:00",
+  "generated_at": "2026-11-02T16:50:10.495683+00:00",
   "is_live": true,
   "positions": [
     {
@@ -7,36 +7,36 @@
       "asset_class": "equity",
       "qty": 0.172732589,
       "avg_entry_price": 338.558,
-      "current_price": 340.52508544921875,
-      "unrealized_pnl_usd": 0.33977976242778396,
-      "unrealized_pnl_pct": 0.5810187469263095,
+      "current_price": 339.1199951171875,
+      "unrealized_pnl_usd": 0.09707487159715653,
+      "unrealized_pnl_pct": 0.165996702835991,
       "stop_loss_price": 324.1,
       "take_profit_price": 367.6,
       "opened_at": "2026-09-30T14:47:27.969916+00:00",
-      "return_1w_pct": -0.9842453481569313,
-      "return_1m_pct": 2.048333170848493,
-      "return_6m_pct": 23.228269890519115,
-      "return_1y_pct": 26.41305340347968,
-      "return_3y_pct": 95.3754555504934,
-      "return_6y_pct": 218.15389453768844
+      "return_1w_pct": -1.3928087272587875,
+      "return_1m_pct": 1.627256626225937,
+      "return_6m_pct": 22.719786160274214,
+      "return_1y_pct": 25.891442025141842,
+      "return_3y_pct": 94.5692542560499,
+      "return_6y_pct": 216.8410906616526
     },
     {
       "symbol": "PG",
       "asset_class": "equity",
       "qty": 0.180260596,
       "avg_entry_price": 161.322,
-      "current_price": 162.67080688476562,
-      "unrealized_pnl_usd": 0.2431367329367544,
-      "unrealized_pnl_pct": 0.836096059288649,
+      "current_price": 162.83999633789062,
+      "unrealized_pnl_usd": 0.2736349245939809,
+      "unrealized_pnl_pct": 0.9409729224102215,
       "stop_loss_price": 156.5,
       "take_profit_price": 170.7,
       "opened_at": "2026-10-23T14:47:10.953983+00:00",
-      "return_1w_pct": 1.720115524835264,
-      "return_1m_pct": 12.999580469954196,
-      "return_6m_pct": 15.025841662644845,
-      "return_1y_pct": 11.320364815402083,
-      "return_3y_pct": 17.3401260795093,
-      "return_6y_pct": 34.32907529699036
+      "return_1w_pct": 1.8259118324029266,
+      "return_1m_pct": 13.117108240235753,
+      "return_6m_pct": 15.145476891723963,
+      "return_1y_pct": 11.436134443251733,
+      "return_3y_pct": 17.46216833245684,
+      "return_6y_pct": 34.46877034749385
     }
   ]
 }
