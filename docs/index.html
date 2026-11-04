@@ -199,13 +199,16 @@
   .eq-tooltip b { display: block; font-size: 13px; }
   .eq-tooltip span { color: var(--muted); font-size: 10.5px; }
 
-  /* ------------------------------------------------------ QQQ benchmark */
-  /* Two series on one % axis, both rebased to 0 at the first live trade.
-     Colors validated for this dark surface (dataviz validate_palette.js). QQQ is
-     also dashed, so the pair never relies on color alone. */
-  :root { --bench-bot: #4f8ff0; --bench-qqq: #b98410; }
+  /* ------------------------------------------------------ SPY benchmark */
+  /* Two series on one % axis, both rebased to 0 at the first live trade. The bot
+     is the thick solid blue line; the benchmark is thin and muted grey, so the
+     pair never relies on color alone (weight differs too). */
+  :root { --bench-bot: #4f8ff0; --bench-ref: #8591a5; --bench-ref-text: #aab4c2; }
   #benchWrap { position: relative; }
-  #benchChart { width: 100%; height: 180px; display: block; overflow: visible; cursor: crosshair; }
+  #benchChart { width: 100%; height: 240px; display: block; overflow: visible; cursor: crosshair; }
+  #benchChart text { font-family: inherit; font-variant-numeric: tabular-nums; }
+  .bench-axis { font-size: 10px; fill: var(--muted); }
+  .bench-end { font-size: 10.5px; font-weight: 600; }
   .bench-legend { display: flex; gap: var(--space-4); font-size: 11.5px; color: var(--text-dim); margin: -6px 0 var(--space-3); flex-wrap: wrap; }
   .bench-legend .key { display: inline-flex; align-items: center; gap: 6px; }
   .bench-legend svg { width: 18px; height: 6px; }
@@ -367,7 +370,10 @@
     transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
   }
   .cal-cell.empty { background: none; border: none; }
-  .cal-cell.empty-day { color: var(--muted); }
+  .cal-cell.empty-day { color: var(--muted); background: rgba(124,135,152,.07); border-color: var(--border); }
+  .cal-total { font-size: 12px; color: var(--muted); text-align: center; margin: calc(-1 * var(--space-2)) 0 var(--space-4); }
+  .cal-total b { font-size: 14px; }
+  .cal-total b.pos { color: var(--buy); } .cal-total b.neg { color: var(--sell); }
   .cal-cell.pos { background: rgba(61,220,132,.10); border-color: rgba(61,220,132,.28); cursor: pointer; }
   .cal-cell.neg { background: rgba(255,92,114,.10); border-color: rgba(255,92,114,.28); cursor: pointer; }
   .cal-cell.flat { background: rgba(124,135,152,.10); border-color: var(--border); cursor: pointer; }
@@ -483,12 +489,12 @@
   </div>
 
   <div class="panel" id="benchWrap">
-    <h2><svg class="icon"><use href="#i-up"/></svg>Rendiment vs QQQ</h2>
+    <h2><svg class="icon"><use href="#i-up"/></svg><span id="benchTitle">Rendiment vs SPY (S&amp;P 500)</span></h2>
     <div class="bench-legend" id="benchLegend"></div>
-    <svg id="benchChart" viewBox="0 0 680 180" preserveAspectRatio="none" role="img"
-         aria-label="Rendiment acumulat del bot comparat amb QQQ"></svg>
+    <svg id="benchChart" viewBox="0 0 680 240" role="img"
+         aria-label="Rendiment acumulat del bot comparat amb SPY"></svg>
     <div class="eq-tooltip" id="benchTooltip"></div>
-    <div class="bench-note">Rendiment acumulat des de la primera operacio real, tots dos a 0% en aquell moment.
+    <div class="bench-note" id="benchNote">Rendiment acumulat des de la primera operacio real, tots dos a 0% en aquell moment.
       Els dipositos o retirades de capital es comptarien com a rendiment del bot.</div>
   </div>
 
@@ -535,6 +541,7 @@
         <span><span class="sw" style="background:var(--muted)"></span>Sense operacions tancades</span>
       </div>
     </div>
+    <div class="cal-total" id="calMonthTotal"></div>
     <div class="cal-grid" id="calendarGrid"></div>
     <div class="report-note" id="calendarNote"></div>
   </div>
@@ -1019,18 +1026,56 @@ function renderEquityCurve(data) {
   svg.addEventListener('touchend', handleLeave);
 })();
 
-// ========================================================= QQQ benchmark ==
-// benchmark.json (benchmark.py): one point per cycle, bot equity and QQQ both
-// rebased to 0% at the first live trade. One shared % axis -- never two scales.
-let benchState = { points: [], xs: [], yBot: [], yQqq: [], W: 680, H: 180 };
+// ========================================================= SPY benchmark ==
+// benchmark.json (benchmark.py): one point per cycle, bot equity and the S&P 500
+// ETF (SPY) both rebased to 0% at the first live trade. One shared % axis --
+// never two scales. The SVG is drawn at its real pixel size (no stretched
+// viewBox), so text keeps its size and the plot is tall enough to read.
+let benchState = { points: [], xs: [], yBot: [], yRef: [], W: 680, H: 240 };
+let benchPayload = null;
 
 function fmtPct(v) { return (v >= 0 ? '+' : '') + v.toFixed(2) + '%'; }
 
+// 3-6 round tick values covering [min, max] (steps of 1/2/5 x 10^n percent).
+function niceTicks(min, max) {
+  const span = (max - min) || 1;
+  const raw = span / 5;
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(s => s >= raw) || raw;
+  const ticks = [];
+  for (let v = Math.ceil(min / step) * step; v <= max + step * 1e-6; v += step) ticks.push(Math.abs(v) < step * 1e-6 ? 0 : v);
+  return { ticks, step };
+}
+
+const BENCH_DAY = new Intl.DateTimeFormat('ca-ES', {
+  timeZone: 'Europe/Madrid', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
+});
+const BENCH_DAY_ONLY = new Intl.DateTimeFormat('ca-ES', { timeZone: 'Europe/Madrid', day: '2-digit', month: '2-digit' });
+
+function benchFootnote(payload, sym) {
+  const base = 'Rendiment acumulat des de la primera operacio real, tots dos a 0% en aquell moment. ' +
+    'Els dipositos o retirades de capital es comptarien com a rendiment del bot. ' +
+    (sym === 'SPY' ? "Referencia: SPY (ETF de l'S&P 500); abans era QQQ." : `Referencia: ${escapeHtml(sym)}.`);
+  const notes = [];
+  if (payload.benchmark_rebased && payload.baseline) {
+    const d = BENCH_DAY_ONLY.format(new Date(payload.baseline.t));
+    notes.push(`No hi ha historic de ${escapeHtml(sym)} des de la primera operacio: la linia de ${escapeHtml(sym)} comenca a 0% el ${d}, no el primer dia.`);
+  } else if (payload.benchmark_backfilled) {
+    notes.push(`Els cicles anteriors al canvi de referencia es van calcular amb els preus horaris reals de ${escapeHtml(sym)}; l'historic de QQQ es conserva.`);
+  }
+  return base + (notes.length ? ' ' + notes.join(' ') : '');
+}
+
 function renderBenchmark(payload) {
+  benchPayload = payload;
   const svg = document.getElementById('benchChart');
   const legend = document.getElementById('benchLegend');
+  const note = document.getElementById('benchNote');
   const points = (payload && payload.points) || [];
-  const sym = (payload && payload.benchmark_symbol) || 'QQQ';
+  const sym = (payload && payload.benchmark_symbol) || 'SPY';
+  const title = document.getElementById('benchTitle');
+  if (title) title.textContent = sym === 'SPY' ? 'Rendiment vs SPY (S&P 500)' : `Rendiment vs ${sym}`;
+  svg.setAttribute('aria-label', `Rendiment acumulat del bot comparat amb ${sym}`);
 
   if (points.length < 2) {
     benchState.points = [];
@@ -1040,47 +1085,70 @@ function renderBenchmark(payload) {
         ? 'Calen almenys dos cicles despres de la primera operacio real per dibuixar la comparativa.'
         : 'Encara no hi ha cap operacio real: la comparativa amb ' + escapeHtml(sym) + ' comenca a la primera.'
     }</div>`;
+    if (note) note.textContent = '';
     return;
   }
   svg.style.display = 'block';
 
-  const W = 680, H = 180, PAD_X = 6, PAD_Y = 14, LABEL_W = 64;
-  const bot = points.map(p => p.bot_pct), qqq = points.map(p => p.benchmark_pct);
-  const min = Math.min(0, ...bot, ...qqq), max = Math.max(0, ...bot, ...qqq);
-  const span = (max - min) || 1;
-  const plotW = W - PAD_X - LABEL_W;
-  const xs = points.map((_, i) => PAD_X + (i / (points.length - 1)) * plotW);
-  const y = v => H - PAD_Y - ((v - min) / span) * (H - PAD_Y * 2);
-  const yBot = bot.map(y), yQqq = qqq.map(y);
-  benchState = { points, xs, yBot, yQqq, W, H };
+  const W = Math.max(280, Math.round(svg.getBoundingClientRect().width || 680));
+  const narrow = W < 520;
+  const H = narrow ? 220 : 240;
+  const PAD_L = 42, PAD_R = narrow ? 44 : 52, PAD_T = 12, PAD_B = 22;
+  const bot = points.map(p => p.bot_pct), ref = points.map(p => p.benchmark_pct);
+  let lo = Math.min(0, ...bot, ...ref), hi = Math.max(0, ...bot, ...ref);
+  const pad = ((hi - lo) || 1) * 0.1;
+  lo -= pad; hi += pad;
+  const { ticks } = niceTicks(lo, hi);
+  lo = Math.min(lo, ticks[0]); hi = Math.max(hi, ticks[ticks.length - 1]);
+  const span = (hi - lo) || 1;
 
-  const lastBot = bot[bot.length - 1], lastQqq = qqq[qqq.length - 1];
+  const times = points.map(p => new Date(p.t).getTime());
+  const t0 = times[0], t1 = times[times.length - 1], tSpan = (t1 - t0) || 1;
+  const plotW = W - PAD_L - PAD_R;
+  const xs = times.map(t => PAD_L + ((t - t0) / tSpan) * plotW);
+  const y = v => PAD_T + (1 - (v - lo) / span) * (H - PAD_T - PAD_B);
+  const yBot = bot.map(y), yRef = ref.map(y);
+  benchState = { points, xs, yBot, yRef, W, H };
+
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.style.height = H + 'px';
+
+  const decimals = ticks.length > 1 && Math.abs(ticks[1] - ticks[0]) < 1 ? 1 : 0;
+  const grid = ticks.map(v => {
+    const gy = y(v).toFixed(1);
+    const isZero = v === 0;
+    return `<line x1="${PAD_L}" x2="${W - PAD_R}" y1="${gy}" y2="${gy}" stroke="${isZero ? 'rgba(255,255,255,.34)' : 'rgba(255,255,255,.08)'}" stroke-width="1"${isZero ? '' : ' stroke-dasharray="2 4"'}/>` +
+      `<text x="${PAD_L - 6}" y="${(+gy + 3.5).toFixed(1)}" text-anchor="end" class="bench-axis">${(v > 0 ? '+' : '') + v.toFixed(decimals)}%</text>`;
+  }).join('');
+
+  // X labels: first day, middle, last day (Europe/Madrid).
+  const xLabel = (t, anchor, x) => `<text x="${x.toFixed(1)}" y="${H - 5}" text-anchor="${anchor}" class="bench-axis">${BENCH_DAY_ONLY.format(new Date(t))}</text>`;
+  const xAxis = xLabel(t0, 'start', PAD_L) + xLabel(t0 + tSpan / 2, 'middle', PAD_L + plotW / 2) + xLabel(t1, 'end', PAD_L + plotW);
+
+  const lastBot = bot[bot.length - 1], lastRef = ref[ref.length - 1];
   // End labels, nudged apart when the two lines finish close together.
-  let lb = yBot[yBot.length - 1], lq = yQqq[yQqq.length - 1];
-  if (Math.abs(lb - lq) < 12) { const mid = (lb + lq) / 2, up = lb <= lq ? -6 : 6; lb = mid + up; lq = mid - up; }
-  const lx = xs[xs.length - 1] + 8;
+  let lb = yBot[yBot.length - 1], lr = yRef[yRef.length - 1];
+  if (Math.abs(lb - lr) < 12) { const mid = (lb + lr) / 2, up = lb <= lr ? -6 : 6; lb = mid + up; lr = mid - up; }
+  const lx = xs[xs.length - 1] + 6;
 
   svg.innerHTML = `
-    <line x1="${PAD_X}" x2="${PAD_X + plotW}" y1="${y(0).toFixed(2)}" y2="${y(0).toFixed(2)}"
-          stroke="rgba(255,255,255,.16)" stroke-width="1" vector-effect="non-scaling-stroke"/>
-    <path d="${monotonePath(xs, yQqq)}" fill="none" stroke="var(--bench-qqq)" stroke-width="2"
-          stroke-dasharray="5 4" vector-effect="non-scaling-stroke"/>
-    <path d="${monotonePath(xs, yBot)}" fill="none" stroke="var(--bench-bot)" stroke-width="2"
-          vector-effect="non-scaling-stroke"/>
-    <text x="${lx}" y="${(lb + 4).toFixed(1)}" fill="var(--text)" font-size="11" class="mono">${fmtPct(lastBot)}</text>
-    <text x="${lx}" y="${(lq + 4).toFixed(1)}" fill="var(--text-dim)" font-size="11" class="mono">${fmtPct(lastQqq)}</text>
-    <line class="bench-cross" y1="0" y2="${H}" stroke="rgba(255,255,255,.2)" stroke-width="1"
-          vector-effect="non-scaling-stroke" style="display:none"/>
-    <circle class="bench-dot-q" r="4" fill="var(--bench-qqq)" stroke="var(--panel)" stroke-width="2" style="display:none"/>
-    <circle class="bench-dot-b" r="4" fill="var(--bench-bot)" stroke="var(--panel)" stroke-width="2" style="display:none"/>
+    ${grid}${xAxis}
+    <path d="${monotonePath(xs, yRef)}" fill="none" stroke="var(--bench-ref)" stroke-width="1.2" stroke-linejoin="round"/>
+    <path d="${monotonePath(xs, yBot)}" fill="none" stroke="var(--bench-bot)" stroke-width="2" stroke-linejoin="round"/>
+    <text x="${lx.toFixed(1)}" y="${(lb + 3.5).toFixed(1)}" fill="var(--bench-bot)" class="bench-end">${fmtPct(lastBot)}</text>
+    <text x="${lx.toFixed(1)}" y="${(lr + 3.5).toFixed(1)}" fill="var(--bench-ref-text)" class="bench-end">${fmtPct(lastRef)}</text>
+    <line class="bench-cross" y1="${PAD_T}" y2="${H - PAD_B}" stroke="rgba(255,255,255,.22)" stroke-width="1" style="display:none"/>
+    <circle class="bench-dot-q" r="3.5" fill="var(--bench-ref)" stroke="var(--panel)" stroke-width="1.5" style="display:none"/>
+    <circle class="bench-dot-b" r="4" fill="var(--bench-bot)" stroke="var(--panel)" stroke-width="1.5" style="display:none"/>
   `;
 
-  const swatch = (color, dash) =>
-    `<svg viewBox="0 0 18 6"><line x1="0" x2="18" y1="3" y2="3" stroke="${color}" stroke-width="2"${dash ? ' stroke-dasharray="5 3"' : ''}/></svg>`;
+  const swatch = (color, w) =>
+    `<svg viewBox="0 0 18 6"><line x1="0" x2="18" y1="3" y2="3" stroke="${color}" stroke-width="${w}"/></svg>`;
   legend.innerHTML = `
-    <span class="key">${swatch('var(--bench-bot)', false)}Bot <b class="mono">${fmtPct(lastBot)}</b></span>
-    <span class="key">${swatch('var(--bench-qqq)', true)}${escapeHtml(sym)} <b class="mono">${fmtPct(lastQqq)}</b></span>
-    <span class="key">Diferencia <b class="mono">${fmtPct(lastBot - lastQqq)}</b></span>`;
+    <span class="key">${swatch('var(--bench-bot)', 2.4)}Bot <b class="mono">${fmtPct(lastBot)}</b></span>
+    <span class="key">${swatch('var(--bench-ref)', 1.2)}${escapeHtml(sym)} <b class="mono">${fmtPct(lastRef)}</b></span>
+    <span class="key">Diferencia <b class="mono">${fmtPct(lastBot - lastRef)}</b></span>`;
+  if (note) note.textContent = benchFootnote(payload, sym);
 }
 
 (function wireBenchTooltip() {
@@ -1088,7 +1156,7 @@ function renderBenchmark(payload) {
   const tooltip = document.getElementById('benchTooltip');
 
   function handleMove(evt) {
-    const { points, xs, yBot, yQqq, W } = benchState;
+    const { points, xs, yBot, yRef, W } = benchState;
     if (!points.length) return;
     const rect = svg.getBoundingClientRect();
     const clientX = evt.touches ? evt.touches[0].clientX : evt.clientX;
@@ -1102,19 +1170,21 @@ function renderBenchmark(payload) {
     cross.setAttribute('x1', xs[idx]); cross.setAttribute('x2', xs[idx]); cross.style.display = 'block';
     const db = svg.querySelector('.bench-dot-b'), dq = svg.querySelector('.bench-dot-q');
     db.setAttribute('cx', xs[idx]); db.setAttribute('cy', yBot[idx]); db.style.display = 'block';
-    dq.setAttribute('cx', xs[idx]); dq.setAttribute('cy', yQqq[idx]); dq.style.display = 'block';
+    dq.setAttribute('cx', xs[idx]); dq.setAttribute('cy', yRef[idx]); dq.style.display = 'block';
 
     const p = points[idx];
     const date = new Date(p.t);
-    const label = isNaN(date) ? (p.t || '').slice(0, 16).replace('T', ' ')
-      : date.toLocaleString('ca-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    const label = isNaN(date) ? (p.t || '').slice(0, 16).replace('T', ' ') : BENCH_DAY.format(date);
+    const sym = (benchPayload && benchPayload.benchmark_symbol) || 'SPY';
+    const diff = p.bot_pct - p.benchmark_pct;
     tooltip.innerHTML = `
+      <span>${label}</span>
       <div class="bench-tip-row"><i style="background:var(--bench-bot)"></i>Bot <b class="mono">${fmtPct(p.bot_pct)}</b></div>
-      <div class="bench-tip-row"><i style="background:var(--bench-qqq)"></i>QQQ <b class="mono">${fmtPct(p.benchmark_pct)}</b></div>
-      <span>${label}</span>`;
+      <div class="bench-tip-row"><i style="background:var(--bench-ref)"></i>${escapeHtml(sym)} <b class="mono">${fmtPct(p.benchmark_pct)}</b></div>
+      <div class="bench-tip-row"><i style="background:transparent"></i>Diferencia <b class="mono">${fmtPct(diff)}</b></div>`;
     tooltip.style.display = 'block';
     const left = (xs[idx] / W) * rect.width;
-    tooltip.style.left = Math.min(Math.max(left, 60), rect.width - 60) + 'px';
+    tooltip.style.left = Math.min(Math.max(left, 70), rect.width - 70) + 'px';
     tooltip.style.top = svg.offsetTop + 'px';
   }
 
@@ -1127,6 +1197,13 @@ function renderBenchmark(payload) {
   svg.addEventListener('mouseleave', handleLeave);
   svg.addEventListener('touchmove', handleMove, { passive: true });
   svg.addEventListener('touchend', handleLeave);
+
+  // The chart is drawn at pixel size, so it must be redrawn when the width changes.
+  let resizeTimer = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => { if (benchPayload) renderBenchmark(benchPayload); }, 120);
+  });
 })();
 
 // =============================================================== holdings ==
@@ -1523,6 +1600,28 @@ let DAILY_AGG = {};
 
 function pad2(n) { return String(n).padStart(2, '0'); }
 
+// Every day on this page is a Europe/Madrid calendar day, the way the owner
+// reads it. Timestamps in signals.csv are UTC, so a close at 23:30 UTC belongs
+// to the next day in Madrid; slicing the string would put it on the wrong one.
+const MADRID_DAY = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Europe/Madrid', year: 'numeric', month: '2-digit', day: '2-digit',
+});
+function madridDay(value) {
+  const t = value instanceof Date ? value : new Date(value);
+  return isNaN(t) ? '' : MADRID_DAY.format(t); // 'YYYY-MM-DD'
+}
+const MADRID_TIME = new Intl.DateTimeFormat('ca-ES', {
+  timeZone: 'Europe/Madrid', hour: '2-digit', minute: '2-digit', hour12: false,
+});
+function madridTime(value) {
+  const t = new Date(value);
+  return isNaN(t) ? '' : MADRID_TIME.format(t);
+}
+function madridToday() {
+  const [y, m, d] = madridDay(new Date()).split('-').map(Number);
+  return { year: y, month: m - 1, day: d, str: `${y}-${pad2(m)}-${pad2(d)}` };
+}
+
 // Builds { 'YYYY-MM-DD': { pnl, trades: [row,...], equityOpen } } from the raw
 // CSV rows. equityOpen is the account equity carried over from the previous
 // day's last reading (not that day's own first reading, which would already
@@ -1534,7 +1633,7 @@ function dailyAggregates(data) {
   let lastKnownEquity = null;
 
   for (const r of sorted) {
-    const day = (r.timestamp || '').slice(0, 10);
+    const day = madridDay(r.timestamp);
     if (!day) continue;
     if (!days[day]) days[day] = { pnl: 0, trades: [], entries: 0, equityOpen: lastKnownEquity };
 
@@ -1557,7 +1656,7 @@ function dailyAggregates(data) {
   // of leaving the % blank for it.
   for (const day in days) {
     if (days[day].equityOpen === null || days[day].equityOpen === undefined) {
-      const firstRow = sorted.find(r => (r.timestamp || '').slice(0, 10) === day && isFinite(parseFloat(r.account_equity_usd)));
+      const firstRow = sorted.find(r => madridDay(r.timestamp) === day && isFinite(parseFloat(r.account_equity_usd)));
       days[day].equityOpen = firstRow ? parseFloat(firstRow.account_equity_usd) : null;
     }
   }
@@ -1585,7 +1684,8 @@ function renderCalendar() {
   const firstOfMonth = new Date(Date.UTC(year, month, 1));
   const firstDow = (firstOfMonth.getUTCDay() + 6) % 7; // 0=Monday
   const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = madridToday().str;
+  let monthPnl = 0, monthTrades = 0;
 
   let html = DOW_NAMES.map(d => `<div class="cal-dow">${d}</div>`).join('');
   for (let i = 0; i < firstDow; i++) html += `<div class="cal-cell empty"></div>`;
@@ -1594,9 +1694,13 @@ function renderCalendar() {
     const dateStr = `${year}-${pad2(month + 1)}-${pad2(day)}`;
     const agg = DAILY_AGG[dateStr];
     const hasActivity = !!(agg && agg.trades.length);
+    // `entries` must be declared before `cls` reads it: it used to come after,
+    // which threw a ReferenceError on every day without closed trades and left
+    // the whole grid unrendered.
+    const entries = agg ? agg.entries : 0;
     const cls = hasActivity ? (agg.pnl > 0 ? 'pos' : agg.pnl < 0 ? 'neg' : 'flat') : (entries ? 'empty-day entry-day' : 'empty-day');
     const todayCls = dateStr === todayStr ? ' today' : '';
-    const entries = agg ? agg.entries : 0;
+    if (hasActivity) { monthPnl += agg.pnl; monthTrades += agg.trades.length; }
 
     let inner = `<div class="cal-daynum">${day}</div>`;
     if (hasActivity) {
@@ -1611,6 +1715,13 @@ function renderCalendar() {
   }
 
   grid.innerHTML = html;
+  const totalEl = document.getElementById('calMonthTotal');
+  if (totalEl) {
+    const cls = monthPnl > 0 ? 'pos' : monthPnl < 0 ? 'neg' : '';
+    totalEl.innerHTML = monthTrades
+      ? `Total del mes: <b class="mono ${cls}">${fmtMoneySigned(monthPnl)}</b> &middot; ${monthTrades} operacio${monthTrades === 1 ? '' : 'ns'} ${monthTrades === 1 ? 'tancada' : 'tancades'}`
+      : 'Cap operacio tancada aquest mes';
+  }
   const closedCount = Object.values(DAILY_AGG).reduce((n, a) => n + a.trades.length, 0);
   document.getElementById('calendarNote').textContent = closedCount
     ? ''
@@ -1639,7 +1750,7 @@ function openDayDetail(dateStr) {
 
     return `
       <tr>
-        <td class="mono">${(r.timestamp || '').slice(11, 16)}</td>
+        <td class="mono">${madridTime(r.timestamp)}</td>
         <td>${escapeHtml(r.symbol || '')}</td>
         <td><span class="action-cell ${action}">${actionIcon ? `<svg class="icon"><use href="#${actionIcon}"/></svg>` : ''}${term(action, escapeHtml(action))}</span></td>
         <td class="mono">${isFinite(qty) ? qty.toFixed(4).replace(/\.?0+$/, '') : '—'}</td>
@@ -1661,7 +1772,7 @@ function openDayDetail(dateStr) {
   document.getElementById('dayModalSummary').innerHTML =
     `<b class="mono ${totalCls}">${fmtMoneySigned(agg.pnl)}</b>` +
     (totalPct !== null ? ` <span class="mono">(${fmtCalPct(totalPct)})</span>` : '') +
-    ` &middot; ${agg.trades.length} operacio${agg.trades.length === 1 ? '' : 'ns'} tancada${agg.trades.length === 1 ? '' : 'es'}`;
+    ` &middot; ${agg.trades.length} operacio${agg.trades.length === 1 ? '' : 'ns'} ${agg.trades.length === 1 ? 'tancada' : 'tancades'}`;
 
   document.getElementById('dayModalRows').innerHTML = rowsHtml;
   document.getElementById('dayModalOverlay').classList.add('visible');
@@ -1719,7 +1830,13 @@ async function loadAll() {
   renderBenchmark(benchmarkPayload);
 
   const raw = parseCSV(csvText.trim());
-  if (raw.length < 1) return;
+  if (raw.length < 1) {
+    // No signals at all: still draw the calendar, in its empty state.
+    DAILY_AGG = {};
+    if (!calendarView) { const t = madridToday(); calendarView = { year: t.year, month: t.month }; }
+    renderCalendar();
+    return;
+  }
   const head = raw[0];
   let data = raw.slice(1).map(r => Object.fromEntries(head.map((h, i) => [h, r[i]])));
 
@@ -1744,8 +1861,8 @@ async function loadAll() {
 
   DAILY_AGG = dailyAggregates(data);
   if (!calendarView) {
-    const now = new Date();
-    calendarView = { year: now.getFullYear(), month: now.getMonth() };
+    const t = madridToday();
+    calendarView = { year: t.year, month: t.month };
   }
   renderCalendar();
 }
