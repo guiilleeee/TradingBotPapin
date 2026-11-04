@@ -78,7 +78,7 @@ from models import AssetClass
 
 DEFAULT_DB_PATH = "backtest_historical_screening.db"
 DEFAULT_EQUITY_COUNT = 5
-DEFAULT_CRYPTO_SYMBOLS = ["BTC-USD", "ETH-USD", "SOL-USD"]
+DEFAULT_CRYPTO_SYMBOLS: List[str] = []  # equities only; --crypto-symbols can still opt in for old studies
 DEFAULT_BENCHMARK_SYMBOL = "SPY"
 
 # Calendar days of history fetched before each screening date to compute that

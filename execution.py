@@ -804,6 +804,13 @@ def _execute_trade(
             return ExecutionResult(status="skipped", message="hold; nothing to execute")
 
         if symbol_config.is_crypto(signal.symbol):
+            if signal.action == "buy":
+                # The bot is equities-only. A sell still routes, so a stray
+                # legacy crypto position could always be closed.
+                return ExecutionResult(
+                    status="skipped",
+                    message=f"{signal.symbol}: crypto buys are disabled (equities only)",
+                )
             return _execute_crypto(
                 signal, current_price, live_equity, is_live, existing_position, cash_available
             )

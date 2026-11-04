@@ -78,11 +78,13 @@ def test_run_screening_writes_symbols_on_a_healthy_run(tmp_path, stub_equity_sid
     rc = screening.run_screening(str(out))
     assert rc == 0
     doc = yaml.safe_load(out.read_text(encoding="utf-8"))
-    assert len(doc["symbols"]) == 25
+    assert len(doc["symbols"]) == 29
     # Market-cap order (the universe's own order) is preserved, not score order.
-    assert [e["symbol"] for e in doc["symbols"]] == [f"SYM{i}" for i in range(25)]
+    assert [e["symbol"] for e in doc["symbols"]] == [f"SYM{i}" for i in range(29)]
     assert all(e["asset_class"] == "equity" for e in doc["symbols"])
-    # The whole pool, top 25 included, is kept for the pre-filter.
+    assert set(doc) == {"generated_at", "symbols", "scores", "pool"}  # no crypto key
+    assert set(doc["scores"]) == {"equity"}
+    # The whole pool, top 29 included, is kept for the pre-filter.
     assert doc["pool"] == [f"SYM{i}" for i in range(30)]
 
 def test_run_screening_fails_without_writing_when_equity_universe_is_too_small(tmp_path, monkeypatch):

@@ -5,14 +5,13 @@ Bidirectional Wake-up logic:
 - Check current positions from positions.json.
 - If we hold a symbol, check for sell-side triggers (price drops).
 - If we don't hold a symbol, check for buy-side triggers (price spikes / volume multiples).
-- A bot-managed exit (every crypto position, and notional equity entries) whose
+- A bot-managed exit (notional equity entries) whose
   stop-loss or take-profit has been crossed also wakes a sell cycle -- ignoring the
   cooldown -- so main.py's sweep closes it within 15 minutes instead of waiting for
   the next scheduled cycle. No broker holds a stop for these positions.
-- Thresholds are per symbol: config.yaml's `symbol_overrides` can widen them (DOGE)
+- Thresholds are per symbol: config.yaml's `symbol_overrides` can widen them
   on top of the global `wake_trigger` block (see symbol_config.wake_config).
-- Market-hours aware: outside NYSE hours only crypto symbols are checked; crypto
-  trades 24/7.
+- Market-hours aware: outside NYSE hours nothing is checked (equities only).
 """
 
 from __future__ import annotations
@@ -207,7 +206,7 @@ def run_watch(
     Returns: {"wake_buy": ["AAPL", ...], "wake_sell": ["MSFT", ...]}
     """
     # Same loader as main.py, so the watcher sees the screened symbols.yaml
-    # universe plus the fixed crypto -- not just config.yaml's static fallback.
+    # universe -- not just config.yaml's static fallback.
     import main as main_module
     config = main_module.load_config(config_path)
 
@@ -224,8 +223,8 @@ def run_watch(
     # A held symbol outside the universe still gets its sell-side checks.
     symbols = universe + sorted(s for s in held_symbols if s not in universe)
     if not equities_open:
-        symbols = [s for s in symbols if symbol_config.is_crypto(s, config)]
-        print("Equity market is closed: checking crypto only.")
+        print("Equity market is closed: nothing to watch.")
+        return {"wake_buy": [], "wake_sell": []}
 
     print("=== Bidirectional Volume/Price Watch ===")
 

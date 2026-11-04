@@ -1,4 +1,4 @@
-# TradingBot v3 -- Alpaca: S&P 500 top-25 equities + 4 fixed crypto pairs
+# TradingBot v3 -- Alpaca: S&P 500 top-29 equities (no crypto)
 
 # Only the literal boolean `true` enables real-money trading. Anything else --
 # "true", 1, yes, a typo -- resolves to simulation. Failing safe is the point.
@@ -60,7 +60,7 @@ time_exit:
 
 # No new buy when the next earnings report is this many calendar days away or
 # fewer (0 = today). A bracket held through an earnings gap can lose far past its
-# stop. 0 disables the rule; crypto and unknown dates are never blocked.
+# stop. 0 disables the rule; unknown dates are never blocked.
 earnings_blackout_days: 2
 
 # Confidence thresholds. These are read by separate code paths -- the live path
@@ -85,9 +85,6 @@ portfolio:
   max_gross_exposure_pct: 80.0
   min_position_pct: 1.0
   groups:
-    crypto:
-      asset_class: crypto
-      max_positions: 2
     semiconductors:
       symbols: [NVDA, AMD, AVGO, MU, QCOM, ASML, AMAT, LRCX, KLAC, MRVL, ADI, TXN, INTC, NXPI, MCHP, ON, ARM, GFS, MPWR, TER, SWKS]
       max_positions: 2
@@ -109,14 +106,14 @@ approval_mode: false
 
 # ------------------------------------------------------------------------- funnel
 # Full-universe cycles (scheduled, or a manual run of trading_bot.yml) rank all
-# 30 symbols locally -- no model call -- and send the model only the top_n
+# 29 symbols locally -- no model call -- and send the model only the top_n
 # candidates plus every symbol with an open position. Wake-up and single-symbol
-# manual analyses bypass this. While NYSE is closed, only crypto can be a
-# candidate (an equity buy would be skipped anyway). See funnel.py.
+# manual analyses bypass this. While NYSE is closed there is no new-buy
+# candidate (an equity buy would be skipped anyway); held positions are still reviewed. See funnel.py.
 funnel:
   enabled: true
   top_n: 6
-  # Pre-filter: the weekly screen keeps 25 of the ~425 non-financial S&P 500
+  # Pre-filter: the weekly screen keeps 29 of the ~425 non-financial S&P 500
   # names (symbols.yaml `pool`). At each scheduled cycle while NYSE is open, the
   # rest of the pool is checked in the same batched download, again with no model
   # call. A symbol is added for analysis (logged with trigger "prefilter") only if
@@ -130,41 +127,39 @@ funnel:
     max_extra: 2
 
 # ----------------------------------------------------------------------- universe
-# Equities: the 25 largest non-financial S&P 500 companies by market cap. This
+# Equities: the 29 largest non-financial S&P 500 companies by market cap. This
 # list is the static fallback; weekly_screening.yml recomputes it every Monday
-# into symbols.yaml, which replaces only the equity entries below.
-# Crypto: fixed, never rotated by the screen (asset_class: crypto is what keeps
-# them in place when symbols.yaml exists).
+# into symbols.yaml, which replaces the list below. Equities only -- no crypto.
 symbols:
-  - {symbol: NVDA, asset_class: equity}
   - {symbol: AAPL, asset_class: equity}
-  - {symbol: GOOGL, asset_class: equity}
+  - {symbol: NVDA, asset_class: equity}
   - {symbol: MSFT, asset_class: equity}
+  - {symbol: GOOGL, asset_class: equity}
   - {symbol: AMZN, asset_class: equity}
   - {symbol: META, asset_class: equity}
   - {symbol: AVGO, asset_class: equity}
   - {symbol: TSLA, asset_class: equity}
-  - {symbol: MU, asset_class: equity}
   - {symbol: LLY, asset_class: equity}
-  - {symbol: AMD, asset_class: equity}
   - {symbol: WMT, asset_class: equity}
+  - {symbol: MU, asset_class: equity}
+  - {symbol: AMD, asset_class: equity}
   - {symbol: XOM, asset_class: equity}
   - {symbol: JNJ, asset_class: equity}
-  - {symbol: INTC, asset_class: equity}
   - {symbol: ABBV, asset_class: equity}
-  - {symbol: CSCO, asset_class: equity}
-  - {symbol: PLTR, asset_class: equity}
-  - {symbol: ORCL, asset_class: equity}
   - {symbol: COST, asset_class: equity}
-  - {symbol: AMAT, asset_class: equity}
-  - {symbol: LRCX, asset_class: equity}
   - {symbol: CVX, asset_class: equity}
-  - {symbol: CAT, asset_class: equity}
+  - {symbol: PLTR, asset_class: equity}
   - {symbol: KO, asset_class: equity}
-  - {symbol: BTC-USD, asset_class: crypto}
-  - {symbol: ETH-USD, asset_class: crypto}
-  - {symbol: SOL-USD, asset_class: crypto}
-  - {symbol: DOGE-USD, asset_class: crypto}
+  - {symbol: CSCO, asset_class: equity}
+  - {symbol: PG, asset_class: equity}
+  - {symbol: ORCL, asset_class: equity}
+  - {symbol: UNH, asset_class: equity}
+  - {symbol: MRK, asset_class: equity}
+  - {symbol: HD, asset_class: equity}
+  - {symbol: GE, asset_class: equity}
+  - {symbol: PM, asset_class: equity}
+  - {symbol: INTC, asset_class: equity}
+  - {symbol: PANW, asset_class: equity}
 
 # ----------------------------------------------------------------- notifications
 # Telegram is the channel that actually delivers: alerts send whenever
@@ -195,14 +190,4 @@ wake_trigger:
 # the global block above -- anything not named here keeps the global value.
 # `max_absolute_position_pct` can only tighten the global cap, never raise it.
 # Only read from this file; symbols.yaml can never set these.
-symbol_overrides:
-  DOGE-USD:
-    # Routine DOGE noise would trip the global 1.5% thresholds several times a day.
-    wake_trigger:
-      buy_side:
-        price_move_pct_15m: 3.0
-        volume_multiple: 3.0
-      sell_side:
-        price_drop_pct_15m: 3.0
-        price_drop_pct_1h: 6.0
-    max_absolute_position_pct: 10.0
+symbol_overrides: {}

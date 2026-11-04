@@ -1,5 +1,5 @@
-"""volume_watch.run_watch with per-symbol thresholds, the closed-market crypto-only
-mode, and wake-ups for crossed stop/take levels on bot-managed exits.
+"""volume_watch.run_watch with per-symbol thresholds, the closed-market
+mode (nothing is watched), and wake-ups for crossed stop/take levels on bot-managed exits.
 
 Fully offline: fetch_ohlcv is stubbed, and every config/ledger/positions file lives
 in tmp_path.
@@ -26,7 +26,7 @@ def _bars(last_move_pct, bars=30, volume_last=1000.0):
 def _write_config(tmp_path, symbols, overrides=None, db_path=None):
     config = {
         "symbols": [
-            {"symbol": s, "asset_class": "crypto" if s.endswith("-USD") else "equity"}
+            {"symbol": s, "asset_class": "equity"}
             for s in symbols
         ],
         "wake_trigger": {
@@ -43,8 +43,8 @@ def _write_config(tmp_path, symbols, overrides=None, db_path=None):
     return str(path)
 
 
-DOGE_OVERRIDE = {
-    "DOGE-USD": {
+WIDE_OVERRIDE = {
+    "TSLA": {
         "wake_trigger": {
             "buy_side": {"price_move_pct_15m": 3.0, "volume_multiple": 3.0},
             "sell_side": {"price_drop_pct_15m": 3.0, "price_drop_pct_1h": 6.0},
@@ -61,53 +61,53 @@ def paths(tmp_path):
     }
 
 
-def test_a_two_percent_spike_wakes_btc_but_not_doge(tmp_path, paths, monkeypatch):
-    config_path = _write_config(tmp_path, ["BTC-USD", "DOGE-USD"], DOGE_OVERRIDE)
+def test_a_two_percent_spike_wakes_aapl_but_not_tsla(tmp_path, paths, monkeypatch):
+    config_path = _write_config(tmp_path, ["AAPL", "TSLA"], WIDE_OVERRIDE)
     monkeypatch.setattr(volume_watch.data_fetcher, "fetch_ohlcv", lambda *a, **k: _bars(2.0))
 
     flagged = volume_watch.run_watch(config_path, paths["wake_state"], paths["positions"])
 
-    assert flagged["wake_buy"] == ["BTC-USD"]
+    assert flagged["wake_buy"] == ["AAPL"]
 
 
-def test_doge_still_wakes_past_its_own_wider_threshold(tmp_path, paths, monkeypatch):
-    config_path = _write_config(tmp_path, ["DOGE-USD"], DOGE_OVERRIDE)
+def test_tsla_still_wakes_past_its_own_wider_threshold(tmp_path, paths, monkeypatch):
+    config_path = _write_config(tmp_path, ["TSLA"], WIDE_OVERRIDE)
     monkeypatch.setattr(volume_watch.data_fetcher, "fetch_ohlcv", lambda *a, **k: _bars(3.5))
 
     flagged = volume_watch.run_watch(config_path, paths["wake_state"], paths["positions"])
 
-    assert flagged["wake_buy"] == ["DOGE-USD"]
+    assert flagged["wake_buy"] == ["TSLA"]
 
 
-def test_doge_volume_override_applies_too(tmp_path, paths, monkeypatch):
-    """2.5x volume clears the global 2.0x but not DOGE's 3.0x."""
-    config_path = _write_config(tmp_path, ["BTC-USD", "DOGE-USD"], DOGE_OVERRIDE)
+def test_tsla_volume_override_applies_too(tmp_path, paths, monkeypatch):
+    """2.5x volume clears the global 2.0x but not TSLA's 3.0x."""
+    config_path = _write_config(tmp_path, ["AAPL", "TSLA"], WIDE_OVERRIDE)
     monkeypatch.setattr(
         volume_watch.data_fetcher, "fetch_ohlcv", lambda *a, **k: _bars(0.0, volume_last=2500.0)
     )
 
     flagged = volume_watch.run_watch(config_path, paths["wake_state"], paths["positions"])
 
-    assert flagged["wake_buy"] == ["BTC-USD"]
+    assert flagged["wake_buy"] == ["AAPL"]
 
 
-def test_held_doge_sell_side_uses_its_wider_drop_threshold(tmp_path, paths, monkeypatch):
-    config_path = _write_config(tmp_path, ["BTC-USD", "DOGE-USD"], DOGE_OVERRIDE)
+def test_held_tsla_sell_side_uses_its_wider_drop_threshold(tmp_path, paths, monkeypatch):
+    config_path = _write_config(tmp_path, ["AAPL", "TSLA"], WIDE_OVERRIDE)
     (tmp_path / "positions.json").write_text(
-        '{"positions": [{"symbol": "BTC-USD", "qty": 1}, {"symbol": "DOGE-USD", "qty": 100}]}',
+        '{"positions": [{"symbol": "AAPL", "qty": 1}, {"symbol": "TSLA", "qty": 100}]}',
         encoding="utf-8",
     )
     monkeypatch.setattr(volume_watch.data_fetcher, "fetch_ohlcv", lambda *a, **k: _bars(-2.0))
 
     flagged = volume_watch.run_watch(config_path, paths["wake_state"], paths["positions"])
 
-    assert flagged["wake_sell"] == ["BTC-USD"]
+    assert flagged["wake_sell"] == ["AAPL"]
     assert flagged["wake_buy"] == []
 
 
-def test_closed_market_checks_crypto_only(tmp_path, paths, monkeypatch):
+def test_closed_market_watches_nothing(tmp_path, paths, monkeypatch):
     monkeypatch.setattr(volume_watch, "_is_market_open", lambda: False)
-    config_path = _write_config(tmp_path, ["AAPL", "BTC-USD"])
+    config_path = _write_config(tmp_path, ["AAPL", "MSFT"])
     fetched = []
 
     def fake_fetch(symbol, *a, **k):
@@ -118,8 +118,18 @@ def test_closed_market_checks_crypto_only(tmp_path, paths, monkeypatch):
 
     flagged = volume_watch.run_watch(config_path, paths["wake_state"], paths["positions"])
 
-    assert fetched == ["BTC-USD"]
-    assert flagged["wake_buy"] == ["BTC-USD"]
+    assert fetched == []
+    assert flagged == {"wake_buy": [], "wake_sell": []}
+
+
+def test_watch_works_with_an_empty_universe(tmp_path, paths, monkeypatch):
+    monkeypatch.setattr(volume_watch, "_is_market_open", lambda: True)
+    config_path = _write_config(tmp_path, [])
+    monkeypatch.setattr(volume_watch.data_fetcher, "fetch_ohlcv", lambda *a, **k: _bars(5.0))
+
+    flagged = volume_watch.run_watch(config_path, paths["wake_state"], paths["positions"])
+
+    assert flagged == {"wake_buy": [], "wake_sell": []}
 
 
 def test_crossed_stop_on_a_managed_exit_wakes_a_sell_even_in_cooldown(tmp_path, paths, monkeypatch):

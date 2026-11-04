@@ -74,9 +74,9 @@ def load_config(
     provider settings even if its own logic were somehow wrong -- that guarantee
     holds structurally here, not by convention in screening.py.
 
-    symbols.yaml only ever carries the screened *equities*. The fixed crypto
-    entries (asset_class: crypto) in config.yaml are kept alongside whatever it
-    supplies -- the weekly screen rotates stocks, never the crypto set.
+    The bot trades US equities only. Any crypto entry (asset_class: crypto, or a
+    "-USD" symbol) found in config.yaml or symbols.yaml is dropped here, so a
+    stale file can never put crypto back into the universe.
 
     A missing or empty symbols.yaml is not an error: config.yaml's own `symbols`
     (hand-tuned, checked into the repo) stands in for it, so the 4h cycle never
@@ -106,21 +106,15 @@ def load_config(
             screened = yaml.safe_load(handle) or {}
         screened_symbols = screened.get("symbols")
         if screened_symbols:
-            fixed_crypto = [
-                entry for entry in config.get("symbols", []) or []
-                if isinstance(entry, dict)
-                and str(entry.get("asset_class", "")).lower() == symbol_config.CRYPTO
-            ]
-            screened_names = {
-                (e["symbol"] if isinstance(e, dict) else str(e)).upper() for e in screened_symbols
-            }
-            config["symbols"] = list(screened_symbols) + [
-                e for e in fixed_crypto if e["symbol"].upper() not in screened_names
-            ]
+            config["symbols"] = list(screened_symbols)
         pool = screened.get("pool")
         if isinstance(pool, list):
             config["prefilter_pool"] = [str(s).strip().upper() for s in pool if str(s).strip()]
 
+    config["symbols"] = [
+        e for e in config.get("symbols", []) or []
+        if not symbol_config.is_crypto(e["symbol"] if isinstance(e, dict) else str(e), {"symbols": [e]})
+    ]
     return config
 
 
@@ -656,6 +650,9 @@ def _run_cycle_body(
                 for entry in matched
             }
             for sym in sorted(trigger_set - matched_upper):
+                if symbol_config.is_crypto(sym, config):
+                    print(f"  {sym}: crypto is not traded any more; ignored")
+                    continue
                 matched.append({"symbol": sym, "asset_class": symbol_config.asset_class(sym, config)})
         configured_symbols = matched
         if not configured_symbols:

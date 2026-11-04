@@ -199,7 +199,7 @@ class TestRunWatch:
         import yaml
 
         config = {
-            "symbols": [{"symbol": s, "asset_class": "crypto"} for s in symbols],
+            "symbols": [{"symbol": s, "asset_class": "equity"} for s in symbols],
             # Never the real ledger: its open positions would flip symbols to sell-side.
             "db_path": str(tmp_path / "none.db"),
         }
@@ -213,12 +213,12 @@ class TestRunWatch:
     @staticmethod
     def _positions_path(tmp_path):
         # run_watch defaults to the repo's live positions.json; once the bot held
-        # BTC-USD there, BTC was checked sell-side and never flagged wake_buy.
+        # AAPL there, BTC was checked sell-side and never flagged wake_buy.
         return str(tmp_path / "positions.json")
 
     def test_run_watch_returns_flagged_symbols(self, monkeypatch, tmp_path):
         monkeypatch.setattr(volume_watch, "_is_market_open", lambda: True)
-        config_path = self._write_config(tmp_path, ["BTC-USD", "ETH-USD"])
+        config_path = self._write_config(tmp_path, ["AAPL", "MSFT"])
         wake_state_path = str(tmp_path / "wake_state.json")
 
         # BTC triggers on price, ETH does not
@@ -226,23 +226,23 @@ class TestRunWatch:
 
         def fake_fetch(symbol, *a, **k):
             call_count["n"] += 1
-            if symbol == "BTC-USD":
+            if symbol == "AAPL":
                 return _make_hourly_df([100.0] * 28 + [100.0, 104.0], [1000.0] * 30)
             return _make_hourly_df([100.0] * 30, [1000.0] * 30)
 
         monkeypatch.setattr(volume_watch.data_fetcher, "fetch_ohlcv", fake_fetch)
 
         flagged = volume_watch.run_watch(config_path, wake_state_path, self._positions_path(tmp_path))
-        assert "BTC-USD" in flagged["wake_buy"]
+        assert "AAPL" in flagged["wake_buy"]
 
         # Verify wake_state was persisted
         state = volume_watch.load_wake_state(wake_state_path)
-        assert "BTC-USD_buy" in state
-        assert "ETH-USD" not in state
+        assert "AAPL_buy" in state
+        assert "MSFT" not in state
 
     def test_run_watch_no_triggers(self, monkeypatch, tmp_path):
         monkeypatch.setattr(volume_watch, "_is_market_open", lambda: True)
-        config_path = self._write_config(tmp_path, ["BTC-USD"])
+        config_path = self._write_config(tmp_path, ["AAPL"])
         wake_state_path = str(tmp_path / "wake_state.json")
 
         df = _make_hourly_df([100.0] * 30, [1000.0] * 30)

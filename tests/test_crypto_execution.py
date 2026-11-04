@@ -41,24 +41,14 @@ def alpaca(monkeypatch):
     return sent
 
 
-def test_live_crypto_buy_is_a_notional_gtc_order_on_the_slash_symbol(alpaca):
-    result = execution.execute_trade(signal(), 60000.0, 5000.0, is_live=True)
-    body = alpaca["body"]
-    assert result.status == "success"
-    assert body["symbol"] == "BTC/USD"
-    assert body["notional"] == "500.00"
-    assert body["time_in_force"] == "gtc"
-    assert "order_class" not in body and "stop_loss" not in body
-
-
-def test_crypto_entry_is_always_a_bot_managed_exit(alpaca):
-    result = execution.execute_trade(signal(), 60000.0, 5000.0, is_live=True)
-    assert execution.needs_managed_exit(result)
-
-
-def test_crypto_buys_while_the_equity_market_is_closed(alpaca, monkeypatch):
-    monkeypatch.setattr(execution, "_is_market_open", lambda: False)
-    assert execution.execute_trade(signal(), 60000.0, 5000.0, is_live=True).status == "success"
+def test_crypto_buys_are_disabled_and_never_reach_the_broker(alpaca, monkeypatch):
+    """The bot is equities-only: a crypto buy is skipped, live or not, market open or not."""
+    for open_ in (True, False):
+        monkeypatch.setattr(execution, "_is_market_open", lambda open_=open_: open_)
+        result = execution.execute_trade(signal(), 60000.0, 5000.0, is_live=True)
+        assert result.status == "skipped"
+        assert "equities only" in result.message
+    assert "body" not in alpaca
 
 
 def test_equity_buy_is_still_blocked_while_the_market_is_closed(alpaca, monkeypatch):
@@ -84,13 +74,12 @@ def test_crypto_duplicate_buy_and_naked_sell_are_skipped(alpaca):
     assert execution.execute_trade(signal("sell"), 60000.0, 5000.0, True, None).status == "skipped"
 
 
-def test_crypto_simulation_is_a_dry_run_with_no_broker_call(monkeypatch):
+def test_crypto_buy_in_simulation_is_skipped_with_no_broker_call(monkeypatch):
     monkeypatch.setattr(
         execution.requests, "post", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no call"))
     )
     result = execution.execute_trade(signal(symbol="DOGE-USD"), 0.25, 1000.0, is_live=False)
-    assert result.status == "dry_run"
-    assert result.qty == pytest.approx(100.0 / 0.25)
+    assert result.status == "skipped"
 
 
 def test_live_crypto_position_lookup_uses_alpacas_unslashed_symbol(monkeypatch):

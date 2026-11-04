@@ -1,12 +1,12 @@
-"""Equity universe (S&P 500 top 25 by market cap) and screening signal (yfinance).
+"""Equity universe (S&P 500 top 29 by market cap) and screening signal (yfinance).
 
 Pipeline, run weekly by screening.py:
 1. Fetch S&P 500 constituents from FMP, falling back to Wikipedia's public
    constituent table (no key) when FMP's endpoints are restricted on the
    current plan.
 2. Filter out financials (Financials / Financial Services sector).
-3. Rank by market cap and take the top 25. The whole non-financial list is the
-   "pool" funnel.prefilter scans each cycle for breakouts outside those 25.
+3. Rank by market cap and take the top 29. The whole non-financial list is the
+   "pool" funnel.prefilter scans each cycle for breakouts outside those 29.
 
 Market cap: neither source carries it, so every constituent without a positive
 market cap gets one from yfinance (in parallel -- ~500 lookups), and if too few
@@ -42,8 +42,8 @@ SP500_MIN_PLAUSIBLE_SIZE = 450
 SP500_WIKIPEDIA_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
 WIKIPEDIA_HEADERS = {"User-Agent": "Mozilla/5.0 (TradingBotPapin weekly screen)"}
 
-# The top 25 non-financial S&P 500 constituents by market cap.
-TARGET_UNIVERSE_SIZE = 25
+# The top 29 non-financial S&P 500 constituents by market cap.
+TARGET_UNIVERSE_SIZE = 29
 
 # Secondary share class -> primary. Dropped when the primary is also a constituent.
 SECONDARY_SHARE_CLASSES = {"GOOG": "GOOGL", "FOX": "FOXA", "NWS": "NWSA"}
@@ -108,7 +108,7 @@ def rank_by_market_cap(
     `keep_all` returns every ranked symbol instead of only the first `size`.
     """
     # One slot per company: a second share class would double the exposure to
-    # one issuer while crowding out the 25th-largest company.
+    # one issuer while crowding out the 29th-largest company.
     present = {r["symbol"] for r in rows}
     rows = [
         r for r in rows
@@ -238,7 +238,7 @@ def fetch_sp500_top(size: int = TARGET_UNIVERSE_SIZE, keep_all: bool = False) ->
 
 
 def build_equity_universe() -> List[str]:
-    """Top-25 S&P 500 universe, largest market cap first.
+    """Top-29 S&P 500 universe, largest market cap first.
 
     A list, not a set: the order is meaningful (the funnel breaks score ties by
     it). Empty only if the fetch fails, in which case the caller falls back to

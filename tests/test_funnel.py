@@ -85,6 +85,15 @@ def test_held_symbols_are_always_sent_and_never_use_a_candidate_slot():
     assert result.selected[:2] == ["EQ00", "EQ01"]
 
 
+def test_equities_only_universe_closed_market_reviews_only_held_symbols():
+    """No crypto exists to fall back on: with NYSE closed there are no candidates."""
+    equities = [f"EQ{i:02d}" for i in range(29)]
+    result = funnel.select(equities, held=["EQ03"], data=data_with_scores(equities), top_n=6,
+                           eligible=lambda _symbol: False)
+    assert result.candidates == []
+    assert result.selected == ["EQ03"]
+
+
 def test_a_top_ranked_held_symbol_does_not_shrink_the_candidate_list():
     order = list(reversed(UNIVERSE))
     result = funnel.select(UNIVERSE, held=[order[0]], data=data_with_scores(order), top_n=6)

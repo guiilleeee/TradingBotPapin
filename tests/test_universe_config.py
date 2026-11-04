@@ -1,5 +1,5 @@
-"""Universe assembly: top-25 by market cap from the screen, plus the 4 fixed crypto
-pairs that symbols.yaml can never rotate out; and the shipped config itself."""
+"""Universe assembly: top-29 by market cap from the screen, equities only (any crypto
+entry is dropped by the loader); and the shipped config itself."""
 
 import yaml
 
@@ -9,32 +9,45 @@ import main
 FIXED_CRYPTO = ["BTC-USD", "ETH-USD", "SOL-USD", "DOGE-USD"]
 
 
-def test_shipped_config_is_25_equities_plus_the_4_fixed_crypto():
+def test_shipped_config_is_29_equities_and_no_crypto():
     with open(main.DEFAULT_CONFIG_PATH, encoding="utf-8") as handle:
         config = yaml.safe_load(handle)
-    equities = [e["symbol"] for e in config["symbols"] if e["asset_class"] == "equity"]
-    crypto = [e["symbol"] for e in config["symbols"] if e["asset_class"] == "crypto"]
-    assert len(equities) == 25 and len(set(equities)) == 25
-    assert crypto == FIXED_CRYPTO
-    doge = config["symbol_overrides"]["DOGE-USD"]
-    assert doge["max_absolute_position_pct"] == 10.0
-    assert doge["wake_trigger"]["buy_side"]["price_move_pct_15m"] == 3.0
+    equities = [e["symbol"] for e in config["symbols"]]
+    assert len(equities) == 29 and len(set(equities)) == 29
+    assert all(e["asset_class"] == "equity" for e in config["symbols"])
+    assert not any(s.endswith("-USD") for s in equities)
+    assert "crypto" not in config["portfolio"]["groups"]
+    assert not any(k.endswith("-USD") for k in (config.get("symbol_overrides") or {}))
     assert config["funnel"]["top_n"] == 6
 
 
-def test_screened_symbols_replace_equities_but_keep_fixed_crypto(tmp_path):
+def test_shipped_symbols_yaml_is_29_equities_and_no_crypto_key():
+    with open("symbols.yaml", encoding="utf-8") as handle:
+        doc = yaml.safe_load(handle)
+    assert len(doc["symbols"]) == 29
+    assert all(e["asset_class"] == "equity" for e in doc["symbols"])
+    assert "crypto" not in doc.get("scores", {})
+
+
+def test_loaded_universe_has_no_crypto():
+    config = main.load_config(main.DEFAULT_CONFIG_PATH)
+    names = [e["symbol"] for e in config["symbols"]]
+    assert len(names) == 29
+    assert not any(s.endswith("-USD") for s in names)
+
+
+def test_crypto_entries_are_dropped_from_both_files(tmp_path):
     config_path = tmp_path / "config.yaml"
     config_path.write_text(yaml.safe_dump({"symbols": (
         [{"symbol": "OLD", "asset_class": "equity"}]
         + [{"symbol": s, "asset_class": "crypto"} for s in FIXED_CRYPTO]
     )}), encoding="utf-8")
+    assert [e["symbol"] for e in main.load_config(str(config_path))["symbols"]] == ["OLD"]
+
     (tmp_path / "symbols.yaml").write_text(yaml.safe_dump({"symbols": [
-        {"symbol": "NEW1", "asset_class": "equity"}, {"symbol": "NEW2", "asset_class": "equity"},
+        {"symbol": "NEW1", "asset_class": "equity"}, {"symbol": "BTC-USD", "asset_class": "crypto"},
     ]}), encoding="utf-8")
-
-    config = main.load_config(str(config_path))
-
-    assert [e["symbol"] for e in config["symbols"]] == ["NEW1", "NEW2"] + FIXED_CRYPTO
+    assert [e["symbol"] for e in main.load_config(str(config_path))["symbols"]] == ["NEW1"]
 
 
 def test_without_symbols_yaml_the_config_list_stands(tmp_path):
@@ -73,8 +86,8 @@ def test_secondary_share_class_does_not_take_a_slot():
     assert equity_universe.rank_by_market_cap(rows, 2, market_cap_lookup=lambda s: 0.0) == ["GOOGL", "X"]
 
 
-def test_target_universe_size_is_25():
-    assert equity_universe.TARGET_UNIVERSE_SIZE == 25
+def test_target_universe_size_is_29():
+    assert equity_universe.TARGET_UNIVERSE_SIZE == 29
 
 
 def test_symbols_yaml_pool_reaches_the_prefilter_and_nothing_else(tmp_path):

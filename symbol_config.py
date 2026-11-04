@@ -25,6 +25,11 @@ EQUITY = "equity"
 # this project (config, ledger, signals). Only execution.py translates it for Alpaca.
 _CRYPTO_QUOTE_SUFFIX = "-USD"
 
+# Crypto is no longer traded. These were the pairs the bot used to hold; they stay
+# known only so past fills and closed trades in the history/reports still map to
+# their project symbol ("BTCUSD" -> "BTC-USD").
+LEGACY_CRYPTO_SYMBOLS = ("BTC-USD", "ETH-USD", "SOL-USD", "DOGE-USD")
+
 
 def _entry_symbol(entry: Any) -> str:
     return entry["symbol"] if isinstance(entry, dict) else str(entry)

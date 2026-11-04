@@ -1,4 +1,4 @@
-"""Weekly symbol screening: the top-25 S&P 500 equities by market cap.
+"""Weekly symbol screening: the top-29 S&P 500 equities by market cap.
 
 This job never trades and never touches the model. It only decides what the
 trading cycle gets to *analyse* -- the AI's own judgment (system prompt rules 4/5:
@@ -6,10 +6,9 @@ no volume confirmation, conflicting signals -> hold) and risk_manager.py remain
 the only things that can turn a candidate into an actual order. Nothing written
 here can widen or bypass either.
 
-Equities only. The universe is the 25 largest non-financial S&P 500
+Equities only. The universe is the 29 largest non-financial S&P 500
 companies by market cap (equity_universe.build_equity_universe), written in
-market-cap order. The four crypto pairs are fixed in config.yaml and are never
-rotated here -- main.load_config keeps them alongside this file's equities.
+market-cap order. There is no crypto: the bot trades US equities only.
 
 The per-cycle choice of *which* of these the model actually analyses is not made
 here; funnel.py ranks the whole universe locally at every cycle. The weekly
@@ -40,7 +39,7 @@ from secrets_redaction import sanitize
 DEFAULT_OUTPUT_PATH = "symbols.yaml"
 DEFAULT_CONFIG_PATH_FOR_ALERTS = "config.yaml"
 
-# All 25 are kept; funnel.py picks per cycle.
+# All 29 are kept; funnel.py picks per cycle.
 EQUITY_COUNT = equity_universe.TARGET_UNIVERSE_SIZE
 
 

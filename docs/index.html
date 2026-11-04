@@ -1233,15 +1233,10 @@ function nyseStatus(now) {
 
 function renderClocks(positions) {
   const el = document.getElementById('clocks');
-  const hasCrypto = (positions || []).some(p => p.asset_class === 'crypto');
   const hasEquity = (positions || []).some(p => p.asset_class === 'equity');
   const now = new Date();
   const chips = [];
 
-  if (hasCrypto) {
-    const utc = new Intl.DateTimeFormat('ca-ES', { timeZone: 'UTC', hour: '2-digit', minute: '2-digit', hour12: false }).format(now);
-    chips.push(`<div class="clock"><svg class="icon"><use href="#i-clock"/></svg><span class="dot open"></span><span class="label">${term('spot', 'Cripto')}</span><b class="mono">${utc} UTC</b></div>`);
-  }
   if (hasEquity) {
     const nyse = nyseStatus(now);
     chips.push(`<div class="clock"><svg class="icon"><use href="#i-clock"/></svg><span class="dot ${nyse.open ? 'open' : 'closed'}"></span><span class="label">NYSE</span><b class="mono">${nyse.label}</b></div>`);
@@ -2023,8 +2018,7 @@ let chart = null;
 let candlestickSeries = null;
 
 // Populates the search box's autocomplete from the bot's actual current
-// universe (config.yaml's `symbols:` list: top-25 S&P 500 equities plus the
-// fixed crypto pairs, published as docs/config.yaml by every cycle).
+// universe (config.yaml's `symbols:` list: top-29 S&P 500 equities, published as docs/config.yaml by every cycle).
 // This is the static fallback list; weekly_screening.yml can widen it via
 // symbols.yaml, but that file isn't published to docs/, so this is the best
 // "current universe" view available to a static dashboard. Free-text search

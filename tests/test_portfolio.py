@@ -50,12 +50,12 @@ TWIN = BASE + rng.normal(0, 0.003, 70)       # correlated ~0.99 with BASE
 OTHER = rng.normal(0, 0.02, 70)              # unrelated
 
 
-def test_shipped_config_parses_and_has_the_three_groups():
+def test_shipped_config_parses_and_has_the_two_groups():
     with open(main.DEFAULT_CONFIG_PATH, encoding="utf-8") as handle:
         cfg = yaml.safe_load(handle)
     s = portfolio.settings_from_config(cfg)
     assert s["max_open_positions"] > 0
-    assert set(s["groups"]) == {"crypto", "semiconductors", "megacap_platforms"}
+    assert set(s["groups"]) == {"semiconductors", "megacap_platforms"}
     assert s["correlation"]["lookback_sessions"] == 60
 
 

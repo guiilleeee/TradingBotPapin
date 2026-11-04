@@ -366,10 +366,11 @@ def build_report(
     now: Optional[datetime] = None,
 ) -> Dict[str, Any]:
     now = now or datetime.now(timezone.utc)
+    # Crypto is no longer in the config, but past crypto fills still have to map
+    # back to their project symbol so closed history keeps reading correctly.
     crypto_bases = {
-        symbol_config.alpaca_position_symbol(e["symbol"]).upper(): e["symbol"]
-        for e in config.get("symbols") or []
-        if isinstance(e, dict) and symbol_config.is_crypto(e["symbol"], config)
+        symbol_config.alpaca_position_symbol(sym).upper(): sym
+        for sym in symbol_config.LEGACY_CRYPTO_SYMBOLS
     }
     signal_rows, broker_exit_kinds = _load_signal_rows(db_path)
     orders = _orders_from_fills(fills, crypto_bases)
