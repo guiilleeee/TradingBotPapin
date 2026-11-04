@@ -170,6 +170,11 @@ class BotLogger:
 
     # ------------------------------------------------------------------ signals
 
+    def count_signals(self) -> int:
+        """Total rows in the signals table (a cycle compares before/after)."""
+        with self._conn() as conn:
+            return int(conn.execute("SELECT COUNT(*) FROM signals").fetchone()[0])
+
     def log_signal(
         self,
         symbol: str,

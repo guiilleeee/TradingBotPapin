@@ -29,6 +29,7 @@ import data_fetcher
 import execution
 import funnel
 import notifications
+from secrets_redaction import sanitize
 import portfolio
 import position_metrics
 import risk_manager
@@ -660,6 +661,14 @@ def _run_cycle_body(
     elif funnel.funnel_enabled(config):
         configured_symbols = _funnel_symbols(config, configured_symbols, is_live, bot_logger, book)
 
+    # A cycle that tried to analyse symbols and logged not one signal did not work,
+    # whatever the reason (model credit gone, bad key, outage). Counted here so the
+    # end of the cycle can say so instead of reporting a quiet success.
+    signals_before = bot_logger.count_signals()
+    attempted = 0
+    failed_symbols = 0
+    first_error: Optional[str] = None
+
     for entry in configured_symbols:
         symbol = entry["symbol"] if isinstance(entry, dict) else str(entry)
 
@@ -667,6 +676,7 @@ def _run_cycle_body(
             print(f"- {symbol}: auto-closed this cycle, not re-evaluating")
             continue
 
+        attempted += 1
         try:
             _process_symbol(
                 symbol=symbol,
@@ -688,6 +698,9 @@ def _run_cycle_body(
         except Exception as exc:  # noqa: BLE001 - one symbol never kills the cycle
             print(f"- {symbol}: FAILED: {type(exc).__name__}: {exc}")
             traceback.print_exc(file=sys.stdout)
+            failed_symbols += 1
+            if first_error is None:
+                first_error = sanitize(f"{symbol}: {type(exc).__name__}: {exc}")
 
     # --- export -----------------------------------------------------------
     csv_path = config.get("csv_path", "signals.csv")
@@ -714,6 +727,18 @@ def _run_cycle_body(
         print(f"Exported {points} benchmark points to {benchmark_path}")
     except Exception as exc:  # noqa: BLE001
         print(f"benchmark.json export failed (non-fatal): {type(exc).__name__}: {exc}")
+
+    # Last, so the dashboard exports above still happen on a failed cycle.
+    if attempted and bot_logger.count_signals() == signals_before:
+        reason = (
+            f"no signal was logged: {failed_symbols}/{attempted} symbols failed"
+            f" (first error: {first_error})" if first_error
+            else f"no signal was logged for {attempted} symbols analysed"
+        )
+        notifications.send_cycle_failure_alert(is_live, reason)
+        # Final line on purpose: job_status.py records the last line of the log.
+        print(f"CYCLE FAILED: {reason}")
+        return 1
 
     return 0
 
