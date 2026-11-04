@@ -46,14 +46,15 @@ def market_open_by_default(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def no_network_for_cycle_side_data(monkeypatch):
-    """Every full cycle now fetches QQQ (benchmark) and a universe-wide price
+    """Every full cycle now fetches SPY (benchmark) and a universe-wide price
     download (funnel). Neither may reach the network from a test; a test about
     either patches in its own fixture data.
     """
     import benchmark
     import funnel
 
-    monkeypatch.setattr(benchmark, "fetch_benchmark_price", lambda symbol="QQQ": None)
+    monkeypatch.setattr(benchmark, "fetch_benchmark_price", lambda symbol="SPY": None)
+    monkeypatch.setattr(benchmark, "fetch_benchmark_history", lambda symbol="SPY": None)
     monkeypatch.setattr(funnel, "fetch_funnel_data", lambda symbols: {})
 
     import data_fetcher
