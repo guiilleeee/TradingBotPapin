@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-11-02T07:00:26.991108+00:00",
+  "generated_at": "2026-11-09T07:00:26.844592+00:00",
   "mode": "live",
   "fills_read": 10,
   "open_lots": 4,
   "min_meaningful_sample": 30,
   "week": {
-    "start": "2026-10-26T07:00:26.991108+00:00",
+    "start": "2026-11-02T07:00:26.844592+00:00",
     "summary": {
       "total_closed_trades": 0,
       "wins": 0,
@@ -29,9 +29,11 @@
       "confidence_vs_pnl_correlation": null
     },
     "overrides": {
-      "proposed_buys": 0,
+      "proposed_buys": 2,
       "executed_buys": 0,
-      "held_by_rule": {},
+      "held_by_rule": {
+        "reward_risk": 1
+      },
       "resized_by_rule": {}
     },
     "trades": []
@@ -112,11 +114,11 @@
       "confidence_vs_pnl_correlation": -0.47529819720998473
     },
     "overrides": {
-      "proposed_buys": 90,
+      "proposed_buys": 92,
       "executed_buys": 6,
       "held_by_rule": {
         "confidence": 63,
-        "reward_risk": 8,
+        "reward_risk": 9,
         "portfolio_group": 4
       },
       "resized_by_rule": {
