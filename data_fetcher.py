@@ -136,11 +136,37 @@ def _wilder_atr(df: pd.DataFrame, period: int = ATR_PERIOD) -> Optional[float]:
     return atr if np.isfinite(atr) else None
 
 
+def market_day_elapsed_fraction(now: Optional[datetime] = None) -> float:
+    """Fraction of the NYSE trading day (9:30-16:00 ET) that has elapsed.
+    Returns 1.0 when the market is closed or on weekends (indicating a complete session).
+    Floor of 0.05 (19 mins) prevents extreme projection noise right at the open bell.
+    """
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo  # type: ignore[no-redef]
+
+    now_et = now.astimezone(ZoneInfo("America/New_York")) if now else datetime.now(ZoneInfo("America/New_York"))
+    if now_et.weekday() >= 5:
+        return 1.0
+
+    market_open = now_et.replace(hour=9, minute=30, second=0, microsecond=0)
+    market_close = now_et.replace(hour=16, minute=0, second=0, microsecond=0)
+
+    if now_et < market_open or now_et >= market_close:
+        return 1.0
+
+    total_seconds = (market_close - market_open).total_seconds()
+    elapsed_seconds = (now_et - market_open).total_seconds()
+    return min(max(elapsed_seconds / total_seconds, 0.05), 1.0)
+
+
 def compute_indicators(
     df: pd.DataFrame,
     rsi_period: int = RSI_PERIOD,
     sma_short: int = SMA_SHORT,
     sma_long: int = SMA_LONG,
+    now: Optional[datetime] = None,
 ) -> TechnicalIndicators:
     """Derive the indicator bundle from OHLCV bars.
 
@@ -168,7 +194,25 @@ def compute_indicators(
 
     last_vol = float(volume.iloc[-1])
     prev_vol = float(volume.iloc[-2])
-    volume_change_pct = ((last_vol / prev_vol) - 1.0) * 100.0 if prev_vol else 0.0
+
+    # If the last bar is from today's active session while the market is open,
+    # project volume to a full-day pace so the model does not mistake mid-session
+    # partial volume for a -90% volume collapse.
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo  # type: ignore[no-redef]
+
+    now_et = now.astimezone(ZoneInfo("America/New_York")) if now else datetime.now(ZoneInfo("America/New_York"))
+    try:
+        last_date = pd.Timestamp(df.index[-1]).date()
+        is_today = (last_date == now_et.date())
+    except Exception:
+        is_today = False
+
+    frac = market_day_elapsed_fraction(now=now) if is_today else 1.0
+    effective_last_vol = (last_vol / frac) if (frac > 0 and frac < 1.0) else last_vol
+    volume_change_pct = ((effective_last_vol / prev_vol) - 1.0) * 100.0 if prev_vol else 0.0
 
     # Trend slope: linear regression of closing prices over the last `sma_short` bars,
     # normalised to percent-per-day to be comparable across price levels.

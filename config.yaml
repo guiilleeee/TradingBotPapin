@@ -26,16 +26,16 @@ funding_threshold_usd: 10.0
 circuit_breaker_loss_pct: 3.0
 
 # Confidence-scaled sizing for buys (risk_manager.py). A buy at min_confidence_live
-# gets min_position_size_pct of equity; size rises in a straight line to
-# full_size_position_pct at full_size_confidence and keeps rising on the same slope
-# above it (confidence is at most 1.0, so ~29.7% at 1.0). There is NO global ceiling
-# and NO risk-per-trade backstop: max_risk_pct and max_absolute_position_pct are
-# deliberately unset (None = no limit). Setting either one back re-enables it.
-# What still limits a buy: circuit_breaker_loss_pct, the portfolio block below, the
-# symbol_overrides cap below, and the cash actually available.
-min_position_size_pct: 10.0
-full_size_position_pct: 25.0
-full_size_confidence: 0.90
+# (0.58) gets min_position_size_pct (~16.5% of equity, ~50€ on a 300€ account);
+# size rises in a straight line to full_size_position_pct (42.0%, ~126€) at
+# full_size_confidence (0.70) and keeps rising on the same slope above it.
+# There is NO global ceiling and NO risk-per-trade backstop: max_risk_pct and
+# max_absolute_position_pct are deliberately unset (None = no limit).
+# What still limits a buy: circuit_breaker_loss_pct, the portfolio block below,
+# the symbol_overrides cap below, and the cash actually available.
+min_position_size_pct: 16.5
+full_size_position_pct: 42.0
+full_size_confidence: 0.70
 
 # Minimum acceptable reward:risk (take-profit distance over stop-loss distance,
 # both measured from current_price) -- a structural requirement, applied
@@ -81,16 +81,16 @@ min_confidence_simulation: 0.40
 #                              max_correlated_positions (including the new one)
 #                              may be correlated at >= threshold.
 portfolio:
-  max_open_positions: 6
-  max_gross_exposure_pct: 80.0
+  max_open_positions: 5
+  max_gross_exposure_pct: 90.0
   min_position_pct: 1.0
   groups:
     semiconductors:
       symbols: [NVDA, AMD, AVGO, MU, QCOM, ASML, AMAT, LRCX, KLAC, MRVL, ADI, TXN, INTC, NXPI, MCHP, ON, ARM, GFS, MPWR, TER, SWKS]
-      max_positions: 2
+      max_positions: 3
     megacap_platforms:
       symbols: [AAPL, MSFT, AMZN, GOOGL, GOOG, META]
-      max_positions: 2
+      max_positions: 3
   correlation:
     enabled: true
     lookback_sessions: 60

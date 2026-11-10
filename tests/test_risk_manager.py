@@ -334,4 +334,5 @@ def test_shipped_config_has_no_global_caps_but_keeps_the_breaker():
     assert config.get("max_risk_pct") is None
     assert config.get("max_absolute_position_pct") is None
     assert config["circuit_breaker_loss_pct"] == 3.0
-    assert config["min_position_size_pct"] == 10.0 and config["full_size_position_pct"] == 25.0
+    assert config["min_position_size_pct"] == 16.5 and config["full_size_position_pct"] == 42.0
+    assert config["full_size_confidence"] == 0.70
