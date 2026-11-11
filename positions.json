@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-11T21:05:04.888035+00:00",
+  "generated_at": "2026-11-11T21:20:28.229902+00:00",
   "is_live": true,
   "positions": [
     {
@@ -16,8 +16,8 @@
       "return_1w_pct": 1.7510214146059688,
       "return_1m_pct": 4.299499548237451,
       "return_6m_pct": 19.094162422982365,
-      "return_1y_pct": 29.554217835889162,
-      "return_3y_pct": 93.11465988420362,
+      "return_1y_pct": 29.554232238951194,
+      "return_3y_pct": 93.11464388301943,
       "return_6y_pct": 207.29220408419965
     },
     {
@@ -34,7 +34,7 @@
       "return_1w_pct": 1.847595601964791,
       "return_1m_pct": 8.66466054122903,
       "return_6m_pct": 23.082368215522962,
-      "return_1y_pct": 39.87402834231051,
+      "return_1y_pct": 39.874013043844414,
       "return_3y_pct": 87.53074813634217,
       "return_6y_pct": 119.80172170949972
     },
@@ -43,36 +43,36 @@
       "asset_class": "equity",
       "qty": 0.021144731,
       "avg_entry_price": 1378.594,
-      "current_price": 1437.7550048828125,
-      "unrealized_pnl_usd": 1.2509435339367558,
-      "unrealized_pnl_pct": 4.291401593421451,
+      "current_price": 1437.2900390625,
+      "unrealized_pnl_usd": 1.2411119567420537,
+      "unrealized_pnl_pct": 4.25767405505173,
       "stop_loss_price": 1287.78,
       "take_profit_price": 1518.1,
       "opened_at": "2026-11-09T14:32:06.890409+00:00",
-      "return_1w_pct": 1.393875470529271,
-      "return_1m_pct": 21.57371013673275,
-      "return_6m_pct": 41.99299612602441,
-      "return_1y_pct": 46.347715219786444,
-      "return_3y_pct": 145.55101634065247,
-      "return_6y_pct": 979.4683855422626
+      "return_1w_pct": 1.3610849837476513,
+      "return_1m_pct": 21.534393549643728,
+      "return_6m_pct": 41.94707600076095,
+      "return_1y_pct": 46.30038679093247,
+      "return_3y_pct": 145.47158026233603,
+      "return_6y_pct": 979.1194122082677
     },
     {
       "symbol": "TSLA",
       "asset_class": "equity",
       "qty": 0.13307407,
       "avg_entry_price": 388.28,
-      "current_price": 390.8163146972656,
-      "unrealized_pnl_usd": 0.3375177195659582,
-      "unrealized_pnl_pct": 0.6532179605608368,
+      "current_price": 390.8399963378906,
+      "unrealized_pnl_usd": 0.3406691318682043,
+      "unrealized_pnl_pct": 0.6593170747632326,
       "stop_loss_price": 364.3,
       "take_profit_price": 437.0,
       "opened_at": "2026-11-11T14:31:13.654718+00:00",
-      "return_1w_pct": 1.4606589527762281,
-      "return_1m_pct": 3.38235482878535,
-      "return_6m_pct": -12.229360985461401,
-      "return_1y_pct": -11.101333188203256,
-      "return_3y_pct": 82.0714306126363,
-      "return_6y_pct": 184.7408692396271
+      "return_1w_pct": 1.4668069941259354,
+      "return_1m_pct": 3.3886193159163858,
+      "return_6m_pct": -12.224042495284804,
+      "return_1y_pct": -11.095946344818508,
+      "return_3y_pct": 82.08246328969122,
+      "return_6y_pct": 184.75812320442594
     }
   ]
 }
