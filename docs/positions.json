@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-12T21:05:28.644047+00:00",
+  "generated_at": "2026-11-12T21:20:28.125419+00:00",
   "is_live": true,
   "positions": [
     {
@@ -16,45 +16,45 @@
       "return_1w_pct": 3.1118316637794186,
       "return_1m_pct": 3.9880494351337115,
       "return_6m_pct": 19.106021770247338,
-      "return_1y_pct": 30.12248314262247,
+      "return_1y_pct": 30.1224977030212,
       "return_3y_pct": 94.37584631001728,
-      "return_6y_pct": 206.5155699467235
+      "return_6y_pct": 206.5155497484804
     },
     {
       "symbol": "JNJ",
       "asset_class": "equity",
       "qty": 0.263542677,
       "avg_entry_price": 284.508,
-      "current_price": 283.55999755859375,
-      "unrealized_pnl_usd": -0.24983910121073385,
-      "unrealized_pnl_pct": -0.33320765722096857,
+      "current_price": 283.5199890136719,
+      "unrealized_pnl_usd": -0.26038306024231955,
+      "unrealized_pnl_pct": -0.3472700192360567,
       "stop_loss_price": 270.0,
       "take_profit_price": 308.0,
       "opened_at": "2026-11-12T14:32:38.605531+00:00",
-      "return_1w_pct": 4.127493365183743,
-      "return_1m_pct": 14.058162126397967,
-      "return_6m_pct": 24.17560227217297,
-      "return_1y_pct": 49.15904245473912,
-      "return_3y_pct": 109.16787411515215,
-      "return_6y_pct": 123.08304949349993
+      "return_1w_pct": 4.112801626109919,
+      "return_1m_pct": 14.042069231975507,
+      "return_6m_pct": 24.158081870125848,
+      "return_1y_pct": 49.13797310426,
+      "return_3y_pct": 109.1383382944425,
+      "return_6y_pct": 123.05153370418225
     },
     {
       "symbol": "LLY",
       "asset_class": "equity",
       "qty": 0.021144731,
       "avg_entry_price": 1378.594,
-      "current_price": 1430.739990234375,
-      "unrealized_pnl_usd": 1.1026129362344852,
-      "unrealized_pnl_pct": 3.7825487586900186,
+      "current_price": 1427.280029296875,
+      "unrealized_pnl_usd": 1.02945299294054,
+      "unrealized_pnl_pct": 3.531571245549814,
       "stop_loss_price": 1287.78,
       "take_profit_price": 1518.1,
       "opened_at": "2026-11-09T14:32:06.890409+00:00",
-      "return_1w_pct": 4.836854961078263,
-      "return_1m_pct": 22.65132560001255,
-      "return_6m_pct": 42.5704340546686,
-      "return_1y_pct": 41.461157063096344,
-      "return_3y_pct": 138.37089865432327,
-      "return_6y_pct": 964.0161482208406
+      "return_1w_pct": 4.583327817466176,
+      "return_1m_pct": 22.35471769193338,
+      "return_6m_pct": 42.22566438314672,
+      "return_1y_pct": 41.11906130778606,
+      "return_3y_pct": 137.79439754507322,
+      "return_6y_pct": 961.4429157212621
     },
     {
       "symbol": "TSLA",
