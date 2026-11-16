@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-16T21:05:09.222920+00:00",
+  "generated_at": "2026-11-16T21:20:18.127976+00:00",
   "is_live": true,
   "positions": [
     {
@@ -16,27 +16,27 @@
       "return_1w_pct": 0.6724037104562264,
       "return_1m_pct": 2.791608927372269,
       "return_6m_pct": 18.638382307859747,
-      "return_1y_pct": 29.954475049975592,
+      "return_1y_pct": 29.954489659249717,
       "return_3y_pct": 88.38753068556817,
-      "return_6y_pct": 204.60125989073782
+      "return_6y_pct": 204.6013200871837
     },
     {
       "symbol": "JNJ",
       "asset_class": "equity",
       "qty": 0.263542677,
       "avg_entry_price": 284.508,
-      "current_price": 282.7699890136719,
-      "unrealized_pnl_usd": -0.45804006799231956,
-      "unrealized_pnl_pct": -0.6108829932121806,
+      "current_price": 282.54998779296875,
+      "unrealized_pnl_usd": -0.516019778639689,
+      "unrealized_pnl_pct": -0.6882098946360826,
       "stop_loss_price": 270.0,
       "take_profit_price": 308.0,
       "opened_at": "2026-11-12T14:32:38.605531+00:00",
-      "return_1w_pct": 0.2339526058557917,
-      "return_1m_pct": 10.647202893652995,
-      "return_6m_pct": 24.846601278255864,
-      "return_1y_pct": 47.57435331749789,
-      "return_3y_pct": 105.5772818394336,
-      "return_6y_pct": 123.28077033229307
+      "return_1w_pct": 0.15596840390386113,
+      "return_1m_pct": 10.561116955789164,
+      "return_6m_pct": 24.74946789865764,
+      "return_1y_pct": 47.459537250957126,
+      "return_3y_pct": 105.41736101666372,
+      "return_6y_pct": 123.1070126995669
     },
     {
       "symbol": "TSLA",
