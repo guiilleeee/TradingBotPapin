@@ -1,57 +1,163 @@
 {
-  "generated_at": "2026-11-09T07:00:26.844592+00:00",
+  "generated_at": "2026-11-16T07:00:08.634212+00:00",
   "mode": "live",
-  "fills_read": 10,
-  "open_lots": 4,
+  "fills_read": 19,
+  "open_lots": 7,
   "min_meaningful_sample": 30,
   "week": {
-    "start": "2026-11-02T07:00:26.844592+00:00",
+    "start": "2026-11-09T07:00:08.634212+00:00",
     "summary": {
-      "total_closed_trades": 0,
-      "wins": 0,
+      "total_closed_trades": 3,
+      "wins": 3,
       "losses": 0,
       "breakeven": 0,
-      "win_rate_pct": null,
-      "avg_win_usd": null,
+      "win_rate_pct": 100.0,
+      "avg_win_usd": 1.7740548387600008,
       "avg_loss_usd": null,
       "risk_reward_ratio": null,
-      "total_realized_pnl_usd": 0,
-      "avg_r_multiple": null,
-      "avg_holding_days": null
+      "total_realized_pnl_usd": 5.322164516280003,
+      "avg_r_multiple": 0.8580047673258632,
+      "avg_holding_days": 7.1066666666666665
     },
-    "by_asset_class": [],
-    "by_trigger": [],
-    "by_close_reason": [],
+    "by_asset_class": [
+      {
+        "name": "equity",
+        "count": 3,
+        "total_pnl_usd": 5.322164516280003,
+        "avg_pnl_usd": 1.7740548387600008,
+        "win_rate_pct": 100.0
+      }
+    ],
+    "by_trigger": [
+      {
+        "name": "wake_buy",
+        "count": 1,
+        "total_pnl_usd": 0.9681696172800008,
+        "avg_pnl_usd": 0.9681696172800008,
+        "win_rate_pct": 100.0
+      },
+      {
+        "name": "scheduled",
+        "count": 1,
+        "total_pnl_usd": 1.3465466521199998,
+        "avg_pnl_usd": 1.3465466521199998,
+        "win_rate_pct": 100.0
+      },
+      {
+        "name": "prefilter",
+        "count": 1,
+        "total_pnl_usd": 3.007448246880002,
+        "avg_pnl_usd": 3.007448246880002,
+        "win_rate_pct": 100.0
+      }
+    ],
+    "by_close_reason": [
+      {
+        "close_reason": "model_sell",
+        "count": 3,
+        "avg_holding_days": 7.1066666666666665,
+        "avg_pnl_usd": 1.7740548387600008,
+        "win_rate_pct": 100.0
+      }
+    ],
     "confidence_vs_outcome": {
-      "trades_with_confidence": 0,
+      "trades_with_confidence": 3,
       "trades_missing_confidence": 0,
-      "buckets": [],
-      "confidence_vs_pnl_correlation": null
+      "buckets": [
+        {
+          "confidence_bucket": "0.55-0.60",
+          "count": 2,
+          "avg_pnl_usd": 1.1573581347000004,
+          "win_rate_pct": 100.0
+        },
+        {
+          "confidence_bucket": "0.60-0.65",
+          "count": 1,
+          "avg_pnl_usd": 3.007448246880002,
+          "win_rate_pct": 100.0
+        }
+      ],
+      "confidence_vs_pnl_correlation": 0.9846742766103569
     },
     "overrides": {
-      "proposed_buys": 2,
-      "executed_buys": 0,
+      "proposed_buys": 10,
+      "executed_buys": 6,
       "held_by_rule": {
-        "reward_risk": 1
+        "portfolio_max_positions": 3,
+        "confidence": 1
       },
-      "resized_by_rule": {}
+      "resized_by_rule": {
+        "portfolio_exposure": 1
+      }
     },
-    "trades": []
+    "trades": [
+      {
+        "symbol": "KO",
+        "asset_class": "equity",
+        "opened_date": "2026-11-10T14:30:54.791174+00:00",
+        "closed_date": "2026-11-12T18:32:50.225106+00:00",
+        "holding_days": 2.17,
+        "qty": 0.504255009,
+        "entry_price": 96.122,
+        "exit_price": 98.042,
+        "realized_pnl_usd": 0.9681696172800008,
+        "entry_confidence": 0.58,
+        "close_reason": "model_sell",
+        "trigger_reason": "wake_buy",
+        "r_multiple": 0.521455730581206,
+        "entry_order_id": "5b57ea01-72f3-4bc0-b4c3-8600ff259792",
+        "exit_order_id": "bf2f85e6-4115-4f29-8d5f-4b7cc8a94133"
+      },
+      {
+        "symbol": "TTWO",
+        "asset_class": "equity",
+        "opened_date": "2026-11-10T15:49:09.268065+00:00",
+        "closed_date": "2026-11-11T18:32:59.784312+00:00",
+        "holding_days": 1.11,
+        "qty": 0.32846748,
+        "entry_price": 223.18800000000002,
+        "exit_price": 232.34400000000002,
+        "realized_pnl_usd": 3.007448246880002,
+        "entry_confidence": 0.62,
+        "close_reason": "model_sell",
+        "trigger_reason": "prefilter",
+        "r_multiple": 0.5034088409940619,
+        "entry_order_id": "ab93f022-4f31-4a0b-86c5-e7002959e847",
+        "exit_order_id": "fb2310ef-9256-4680-8488-5dfeaf27b109"
+      },
+      {
+        "symbol": "PG",
+        "asset_class": "equity",
+        "opened_date": "2026-10-23T14:47:10.896343+00:00",
+        "closed_date": "2026-11-10T15:47:55.034341+00:00",
+        "holding_days": 18.04,
+        "qty": 0.180260596,
+        "entry_price": 161.322,
+        "exit_price": 168.792,
+        "realized_pnl_usd": 1.3465466521199998,
+        "entry_confidence": 0.58,
+        "close_reason": "model_sell",
+        "trigger_reason": "scheduled",
+        "r_multiple": 1.5491497304023216,
+        "entry_order_id": "6b6811f0-36b9-4122-8ef9-46db229c05ae",
+        "exit_order_id": "4a7df8d4-8f00-45af-97fa-291ee3a51276"
+      }
+    ]
   },
   "all_time": {
     "start": null,
     "summary": {
-      "total_closed_trades": 4,
-      "wins": 2,
+      "total_closed_trades": 7,
+      "wins": 5,
       "losses": 2,
       "breakeven": 0,
-      "win_rate_pct": 50.0,
-      "avg_win_usd": 0.9357261914480006,
+      "win_rate_pct": 71.42857142857143,
+      "avg_win_usd": 1.4387233798352006,
       "avg_loss_usd": -2.155659802892496,
-      "risk_reward_ratio": 0.4340787865471302,
-      "total_realized_pnl_usd": -2.439867222888991,
-      "avg_r_multiple": -0.08725134648904721,
-      "avg_holding_days": 5.9624999999999995
+      "risk_reward_ratio": 0.6674167129269194,
+      "total_realized_pnl_usd": 2.882297293391012,
+      "avg_r_multiple": 0.3178584165744858,
+      "avg_holding_days": 6.452857142857143
     },
     "by_asset_class": [
       {
@@ -63,66 +169,75 @@
       },
       {
         "name": "equity",
-        "count": 2,
-        "total_pnl_usd": 1.8714523828960012,
-        "avg_pnl_usd": 0.9357261914480006,
+        "count": 5,
+        "total_pnl_usd": 7.193616899176003,
+        "avg_pnl_usd": 1.4387233798352006,
         "win_rate_pct": 100.0
       }
     ],
     "by_trigger": [
       {
         "name": "wake_buy",
-        "count": 1,
-        "total_pnl_usd": -3.1831402075999984,
-        "avg_pnl_usd": -3.1831402075999984,
-        "win_rate_pct": 0.0
+        "count": 2,
+        "total_pnl_usd": -2.2149705903199974,
+        "avg_pnl_usd": -1.1074852951599987,
+        "win_rate_pct": 50.0
       },
       {
         "name": "scheduled",
-        "count": 3,
-        "total_pnl_usd": 0.7432729847110077,
-        "avg_pnl_usd": 0.24775766157033588,
-        "win_rate_pct": 66.66666666666666
+        "count": 4,
+        "total_pnl_usd": 2.0898196368310074,
+        "avg_pnl_usd": 0.5224549092077518,
+        "win_rate_pct": 75.0
+      },
+      {
+        "name": "prefilter",
+        "count": 1,
+        "total_pnl_usd": 3.007448246880002,
+        "avg_pnl_usd": 3.007448246880002,
+        "win_rate_pct": 100.0
       }
     ],
     "by_close_reason": [
       {
         "close_reason": "model_sell",
-        "count": 4,
-        "avg_holding_days": 5.9624999999999995,
-        "avg_pnl_usd": -0.6099668057222477,
-        "win_rate_pct": 50.0
+        "count": 7,
+        "avg_holding_days": 6.452857142857143,
+        "avg_pnl_usd": 0.411756756198716,
+        "win_rate_pct": 71.42857142857143
       }
     ],
     "confidence_vs_outcome": {
-      "trades_with_confidence": 4,
+      "trades_with_confidence": 7,
       "trades_missing_confidence": 0,
       "buckets": [
         {
           "confidence_bucket": "0.55-0.60",
-          "count": 1,
-          "avg_pnl_usd": 0.9003416055040004,
+          "count": 3,
+          "avg_pnl_usd": 1.0716859583013336,
           "win_rate_pct": 100.0
         },
         {
           "confidence_bucket": "0.60-0.65",
-          "count": 3,
-          "avg_pnl_usd": -1.1134029427976637,
-          "win_rate_pct": 33.33333333333333
+          "count": 4,
+          "avg_pnl_usd": -0.08319014537824732,
+          "win_rate_pct": 50.0
         }
       ],
-      "confidence_vs_pnl_correlation": -0.47529819720998473
+      "confidence_vs_pnl_correlation": -0.3673762164950152
     },
     "overrides": {
-      "proposed_buys": 92,
-      "executed_buys": 6,
+      "proposed_buys": 102,
+      "executed_buys": 12,
       "held_by_rule": {
-        "confidence": 63,
+        "confidence": 64,
         "reward_risk": 9,
-        "portfolio_group": 4
+        "portfolio_group": 4,
+        "portfolio_max_positions": 3
       },
       "resized_by_rule": {
-        "absolute_position_cap": 4
+        "absolute_position_cap": 4,
+        "portfolio_exposure": 1
       }
     }
   }
