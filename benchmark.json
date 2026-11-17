@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-17T02:01:57.627416+00:00",
+  "generated_at": "2026-11-17T14:30:54.431053+00:00",
   "benchmark_symbol": "SPY",
   "legacy_benchmark_symbol": "QQQ",
   "first_live_trade_at": "2026-09-30T14:47:27.954039+00:00",
@@ -2948,6 +2948,13 @@
       "benchmark_price": 754.3699951171875,
       "bot_pct": 2.0446541525626527,
       "benchmark_pct": -1.7581101079408246
+    },
+    {
+      "t": "2026-11-17T14:30:38.457143+00:00",
+      "equity": 297.72,
+      "benchmark_price": 737.8400268554688,
+      "bot_pct": 1.7950559031695512,
+      "benchmark_pct": -3.910814129042217
     }
   ]
 }
