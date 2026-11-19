@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-19T21:05:28.519461+00:00",
+  "generated_at": "2026-11-19T21:20:28.810584+00:00",
   "is_live": true,
   "positions": [
     {
@@ -16,27 +16,27 @@
       "return_1w_pct": -1.5977269357868473,
       "return_1m_pct": 2.9382374875070782,
       "return_6m_pct": 14.684658888469393,
-      "return_1y_pct": 30.483522495778903,
+      "return_1y_pct": 30.48353737481502,
       "return_3y_pct": 84.76677356944735,
-      "return_6y_pct": 206.78653407871886
+      "return_6y_pct": 206.78651351621627
     },
     {
       "symbol": "LLY",
       "asset_class": "equity",
       "qty": 0.034731659,
       "avg_entry_price": 1412.832,
-      "current_price": 1351.199951171875,
-      "unrealized_pnl_usd": -2.1405833033697905,
-      "unrealized_pnl_pct": -4.362305555658786,
+      "current_price": 1351.1199951171875,
+      "unrealized_pnl_usd": -2.1433603097961824,
+      "unrealized_pnl_pct": -4.36796483112023,
       "stop_loss_price": 1326.08,
       "take_profit_price": 1584.29,
       "opened_at": "2026-11-17T18:33:28.627375+00:00",
-      "return_1w_pct": -5.215537519525859,
-      "return_1m_pct": 5.389252229625496,
-      "return_6m_pct": 30.060801409244743,
-      "return_1y_pct": 29.51369022337511,
-      "return_3y_pct": 130.66488467464285,
-      "return_6y_pct": 884.5771639913826
+      "return_1w_pct": -5.221146305745128,
+      "return_1m_pct": 5.38301591440995,
+      "return_6m_pct": 30.053089895858818,
+      "return_1y_pct": 29.506011213099548,
+      "return_3y_pct": 130.65121125293047,
+      "return_6y_pct": 884.5189025138716
     },
     {
       "symbol": "TSLA",
