@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-24T17:50:08.289469+00:00",
+  "generated_at": "2026-11-24T18:05:27.962050+00:00",
   "is_live": true,
   "positions": [
     {
@@ -16,27 +16,27 @@
       "return_1w_pct": 0.4687821279168558,
       "return_1m_pct": 7.145068512453845,
       "return_6m_pct": 22.386362381725245,
-      "return_1y_pct": 20.78692160268696,
-      "return_3y_pct": 23.371376102942975,
-      "return_6y_pct": 45.075765230658085
+      "return_1y_pct": 20.786934506198683,
+      "return_3y_pct": 23.3713491797374,
+      "return_6y_pct": 45.07573730850112
     },
     {
       "symbol": "TTWO",
       "asset_class": "equity",
       "qty": 0.152803057,
       "avg_entry_price": 219.76,
-      "current_price": 224.81100463867188,
-      "unrealized_pnl_usd": 0.7718089497102443,
-      "unrealized_pnl_pct": 2.298418565103688,
+      "current_price": 224.07000732421875,
+      "unrealized_pnl_usd": 0.6585822948330164,
+      "unrealized_pnl_pct": 1.961233766026016,
       "stop_loss_price": 197.5,
       "take_profit_price": 255.0,
       "opened_at": "2026-11-18T18:34:03.848094+00:00",
-      "return_1w_pct": 10.239304032187334,
-      "return_1m_pct": 10.369189427125324,
-      "return_6m_pct": 1.876560703352248,
-      "return_1y_pct": -5.96436284297649,
-      "return_3y_pct": 43.81460728337734,
-      "return_6y_pct": 29.216582457408833
+      "return_1w_pct": 9.875945359571103,
+      "return_1m_pct": 10.005402640551807,
+      "return_6m_pct": 1.5407663857732068,
+      "return_1y_pct": -6.274312770508894,
+      "return_3y_pct": 43.340581387948454,
+      "return_6y_pct": 28.790672966289186
     }
   ]
 }
